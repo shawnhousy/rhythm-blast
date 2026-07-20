@@ -713,7 +713,7 @@ async function saveGameRecord(record) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     player_name: record.playerName,
-                    song_id: record.songId,
+                    song_id: String(record.songId),
                     song_title: record.songTitle,
                     score: record.score,
                     accuracy: record.accuracy,

@@ -64,7 +64,7 @@ export async function onRequest(context) {
       );
     }
 
-    if (!body.song_id || typeof body.song_id !== 'string') {
+    if (!body.song_id || (typeof body.song_id !== 'string' && typeof body.song_id !== 'number')) {
       return new Response(
         JSON.stringify({ error: '缺少歌曲 ID' }),
         { headers: corsHeaders, status: 400 }
@@ -112,7 +112,7 @@ export async function onRequest(context) {
 
     const insertData = {
       player_name: body.player_name.trim(),
-      song_id: body.song_id,
+      song_id: String(body.song_id),
       song_title: body.song_title || 'Unknown',
       score: Math.floor(body.score),
       accuracy: Number(Number(body.accuracy).toFixed(2)),
