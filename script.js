@@ -655,70 +655,23 @@ function calculatePoints(accuracy, rank, score, maxCombo) {
     };
 }
 
-// ========== Supabase 配置 ==========
-let supabase = null;
-let supabaseConnected = false;
+// ========== API 配置（Cloudflare Pages Functions）==========
+const API_BASE = ''; // 空字符串表示同源（/api/*）
+let apiAvailable = false;
 
-const SUPABASE_STORAGE_KEY = 'rhythmBlastSupabaseConfig';
-
-function loadSupabaseConfig() {
+// 检测 API 是否可用
+async function checkApiAvailability() {
     try {
-        return JSON.parse(localStorage.getItem(SUPABASE_STORAGE_KEY) || 'null');
+        const res = await fetch(`${API_BASE}/api/leaderboard?type=total`, { method: 'GET' });
+        apiAvailable = res.ok;
+        return apiAvailable;
     } catch {
-        return null;
+        apiAvailable = false;
+        return false;
     }
 }
 
-function saveSupabaseConfig() {
-    const url = document.getElementById('supabaseUrl').value.trim();
-    const key = document.getElementById('supabaseKey').value.trim();
-    
-    if (!url || !key) {
-        setSupabaseStatus('请填写 URL 和 Key', 'error');
-        return;
-    }
-    
-    localStorage.setItem(SUPABASE_STORAGE_KEY, JSON.stringify({ url, key }));
-    initSupabase(url, key);
-}
-
-function initSupabase(url, key) {
-    try {
-        supabase = window.supabase.createClient(url, key);
-        setSupabaseStatus('连接中...', '');
-        
-        // 测试连接
-        supabase.from('leaderboard').select('count', { count: 'exact', head: true })
-            .then(() => {
-                supabaseConnected = true;
-                setSupabaseStatus('✅ 已连接', 'connected');
-                // 同步云端数据到本地
-                syncFromCloud();
-            })
-            .catch(err => {
-                console.error('Supabase connection error:', err);
-                supabaseConnected = false;
-                setSupabaseStatus('连接失败: ' + (err.message || '请检查表是否存在'), 'error');
-            });
-    } catch (err) {
-        console.error('Supabase init error:', err);
-        setSupabaseStatus('SDK 加载失败', 'error');
-    }
-}
-
-function setSupabaseStatus(text, type) {
-    const el = document.getElementById('supabaseStatus');
-    if (el) {
-        el.textContent = text;
-        el.className = 'config-status' + (type ? ' ' + type : '');
-    }
-}
-
-function toggleSupabaseConfig() {
-    document.getElementById('supabaseConfig').classList.toggle('open');
-}
-
-// ========== 数据存储（混合模式：本地 + Supabase）==========
+// ========== 数据存储（混合模式：本地 + 云端 API）==========
 const STORAGE_KEY = 'rhythmBlastData';
 
 function loadGameData() {
@@ -742,25 +695,32 @@ async function saveGameRecord(record) {
     saveGameData(data);
     updatePlayerDisplay();
     
-    // 同步到 Supabase
-    if (supabaseConnected) {
+    // 同步到云端 API
+    if (apiAvailable) {
         try {
-            const { error } = await supabase.from('leaderboard').insert({
-                player_name: record.playerName,
-                song_id: record.songId,
-                song_title: record.songTitle,
-                score: record.score,
-                accuracy: record.accuracy,
-                rank: record.rank,
-                max_combo: record.maxCombo,
-                points: record.points,
-                perfect: record.stats.perfect,
-                great: record.stats.great,
-                good: record.stats.good,
-                miss: record.stats.miss,
-                difficulty: game.currentSong ? game.currentSong.difficulty : 'normal'
+            const res = await fetch(`${API_BASE}/api/submit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    player_name: record.playerName,
+                    song_id: record.songId,
+                    song_title: record.songTitle,
+                    score: record.score,
+                    accuracy: record.accuracy,
+                    rank: record.rank,
+                    max_combo: record.maxCombo,
+                    points: record.points,
+                    perfect: record.stats.perfect,
+                    great: record.stats.great,
+                    good: record.stats.good,
+                    miss: record.stats.miss,
+                    difficulty: game.currentSong ? game.currentSong.difficulty : 'normal'
+                })
             });
-            if (error) console.error('Sync to Supabase failed:', error);
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                console.error('Sync to cloud failed:', err.error || res.statusText);
+            }
         } catch (err) {
             console.error('Sync error:', err);
         }
@@ -768,16 +728,12 @@ async function saveGameRecord(record) {
 }
 
 async function syncFromCloud() {
-    if (!supabaseConnected) return;
+    if (!apiAvailable) return;
     
     try {
-        const { data: cloudRecords, error } = await supabase
-            .from('leaderboard')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(500);
-        
-        if (error) throw error;
+        const res = await fetch(`${API_BASE}/api/leaderboard?type=songs`);
+        if (!res.ok) throw new Error(res.statusText);
+        const { data: cloudRecords } = await res.json();
         
         const data = loadGameData();
         const localHashes = new Set(data.records.map(r => 
@@ -862,20 +818,16 @@ async function renderLeaderboard() {
     const data = loadGameData();
     const currentName = data.playerName || '匿名玩家';
     
-    // 如果连接了 Supabase，优先从云端获取
-    if (supabaseConnected) {
+    // 如果云端 API 可用，优先从云端获取
+    if (apiAvailable) {
         container.innerHTML = '<div class="empty-leaderboard"><p>加载中...</p></div>';
         
         try {
             if (currentLeaderboardTab === 'total') {
                 // 从云端获取总积分排行
-                const { data: totals, error } = await supabase
-                    .from('player_total_points')
-                    .select('*')
-                    .order('total_points', { ascending: false })
-                    .limit(50);
-                
-                if (error) throw error;
+                const res = await fetch(`${API_BASE}/api/leaderboard?type=total`);
+                if (!res.ok) throw new Error(res.statusText);
+                const { data: totals } = await res.json();
                 
                 // 确保当前玩家在列表中
                 const myData = totals.find(p => p.player_name === currentName);
@@ -915,14 +867,9 @@ async function renderLeaderboard() {
                 // 单曲排行
                 let html = '';
                 for (const song of SONGS) {
-                    const { data: songRecords, error } = await supabase
-                        .from('leaderboard')
-                        .select('*')
-                        .eq('song_id', song.id)
-                        .order('score', { ascending: false })
-                        .limit(5);
-                    
-                    if (error) continue;
+                    const res = await fetch(`${API_BASE}/api/leaderboard?type=songs&song_id=${song.id}`);
+                    if (!res.ok) continue;
+                    const { data: songRecords } = await res.json();
                     
                     if (songRecords.length > 0) {
                         html += `
@@ -1170,14 +1117,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // 加载玩家信息
     updatePlayerDisplay();
     
-    // 自动加载 Supabase 配置
-    const sbConfig = loadSupabaseConfig();
-    if (sbConfig && sbConfig.url && sbConfig.key) {
-        document.getElementById('supabaseUrl').value = sbConfig.url;
-        document.getElementById('supabaseKey').value = sbConfig.key;
-        // 延迟初始化，确保 SDK 已加载
-        setTimeout(() => initSupabase(sbConfig.url, sbConfig.key), 500);
-    }
+    // 检测云端 API 是否可用
+    checkApiAvailability().then(() => {
+        if (apiAvailable) syncFromCloud();
+    });
     
     // 保存昵称
     const nameInput = document.getElementById('playerName');

@@ -5,8 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rhythm Blast - 节奏爆破</title>
     <link rel="stylesheet" href="style.css">
-    <!-- Supabase SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <canvas id="bgCanvas"></canvas>
@@ -24,26 +22,6 @@
                 <span class="player-label">👤 玩家</span>
                 <input type="text" id="playerName" class="player-name-input" placeholder="输入昵称" maxlength="12">
                 <span class="player-points">💎 <span id="totalPoints">0</span> 积分</span>
-            </div>
-
-            <div class="supabase-config" id="supabaseConfig">
-                <div class="config-header" onclick="toggleSupabaseConfig()">
-                    <span>⚙️ 云同步设置 (Supabase)</span>
-                    <span id="configArrow">▼</span>
-                </div>
-                <div class="config-body" id="configBody">
-                    <p class="config-desc">配置 Supabase 后，排行榜数据将同步到云端，跨设备可用</p>
-                    <div class="config-input">
-                        <label>Supabase URL</label>
-                        <input type="text" id="supabaseUrl" placeholder="https://xxx.supabase.co">
-                    </div>
-                    <div class="config-input">
-                        <label>Anon Key</label>
-                        <input type="password" id="supabaseKey" placeholder="eyJhbGciOi...">
-                    </div>
-                    <button class="menu-btn small" onclick="saveSupabaseConfig()">保存并连接</button>
-                    <div class="config-status" id="supabaseStatus">未连接</div>
-                </div>
             </div>
 
             <div class="menu-buttons">
