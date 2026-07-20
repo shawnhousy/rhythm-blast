@@ -273,6 +273,10 @@ function initTrack() {
         const lane = document.createElement('div');
         lane.className = 'track-lane';
         lane.dataset.lane = i;
+        // 添加键位光效元素
+        const glow = document.createElement('div');
+        glow.className = 'key-glow';
+        lane.appendChild(glow);
         container.appendChild(lane);
     }
 }
@@ -449,7 +453,7 @@ function hitNote(note, diff) {
     
     showJudgment(judgment);
     playHitSound(judgment);
-    createParticles(note.lane);
+    createParticles(note.lane, judgment);
     updateScore();
     updateCombo();
     
@@ -483,7 +487,7 @@ function showJudgment(type) {
     }, 500);
 }
 
-function createParticles(lane) {
+function createParticles(lane, judgment) {
     const trackContainer = document.getElementById('trackContainer');
     const laneEl = document.querySelector(`.track-lane[data-lane="${lane}"]`);
     if (!laneEl) return;
@@ -494,22 +498,83 @@ function createParticles(lane) {
     const y = containerRect.height - 100;
     
     const colors = ['#6366f1', '#ec4899', '#22d3ee', '#10b981'];
+    const color = colors[lane];
     
-    for (let i = 0; i < 8; i++) {
+    // 粒子数量根据判定等级
+    const particleCount = judgment === 'perfect' ? 20 : judgment === 'great' ? 14 : 8;
+    
+    for (let i = 0; i < particleCount; i++) {
         const particle = document.createElement('div');
         particle.className = 'particle';
-        const angle = (Math.PI * 2 / 8) * i + Math.random() * 0.5;
-        const dist = 50 + Math.random() * 50;
+        const angle = (Math.PI * 2 / particleCount) * i + (Math.random() - 0.5) * 0.8;
+        const dist = 60 + Math.random() * 80;
         particle.style.left = x + 'px';
         particle.style.top = y + 'px';
-        particle.style.width = (4 + Math.random() * 6) + 'px';
-        particle.style.height = particle.style.width;
-        particle.style.background = colors[lane];
+        const size = 4 + Math.random() * 8;
+        particle.style.width = size + 'px';
+        particle.style.height = size + 'px';
+        particle.style.background = color;
+        particle.style.color = color;
         particle.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
         particle.style.setProperty('--dy', Math.sin(angle) * dist + 'px');
         trackContainer.appendChild(particle);
         
-        setTimeout(() => particle.remove(), 600);
+        setTimeout(() => particle.remove(), 800);
+    }
+    
+    // 打击光环
+    const ring = document.createElement('div');
+    ring.className = 'hit-ring';
+    ring.style.left = x + 'px';
+    ring.style.top = y + 'px';
+    ring.style.width = '60px';
+    ring.style.height = '60px';
+    ring.style.color = color;
+    trackContainer.appendChild(ring);
+    setTimeout(() => ring.remove(), 600);
+    
+    // 第二个光环（延迟）
+    setTimeout(() => {
+        const ring2 = document.createElement('div');
+        ring2.className = 'hit-ring';
+        ring2.style.left = x + 'px';
+        ring2.style.top = y + 'px';
+        ring2.style.width = '40px';
+        ring2.style.height = '40px';
+        ring2.style.color = '#ffffff';
+        ring2.style.opacity = '0.6';
+        trackContainer.appendChild(ring2);
+        setTimeout(() => ring2.remove(), 600);
+    }, 50);
+    
+    // 打击闪光
+    if (judgment === 'perfect' || judgment === 'great') {
+        const flash = document.createElement('div');
+        flash.className = 'hit-flash';
+        flash.style.left = x + 'px';
+        flash.style.top = y + 'px';
+        flash.style.width = '100px';
+        flash.style.height = '100px';
+        trackContainer.appendChild(flash);
+        setTimeout(() => flash.remove(), 300);
+    }
+    
+    // 键位光效
+    const keyGlow = laneEl.querySelector('.key-glow');
+    if (keyGlow) {
+        keyGlow.classList.remove('active');
+        void keyGlow.offsetWidth;
+        keyGlow.classList.add('active');
+    }
+    
+    // 屏幕震动（仅 PERFECT 且高连击时）
+    if (judgment === 'perfect' && game.combo > 30) {
+        const gameTrack = document.querySelector('.game-track');
+        if (gameTrack) {
+            gameTrack.classList.remove('screen-shake');
+            void gameTrack.offsetWidth;
+            gameTrack.classList.add('screen-shake');
+        }
     }
 }
 
@@ -526,12 +591,19 @@ function updateCombo() {
         comboDisplay.classList.add('show');
         comboNum.textContent = game.combo;
         
+        // 高连击特效
+        if (game.combo >= 50) {
+            comboDisplay.classList.add('hot');
+        } else {
+            comboDisplay.classList.remove('hot');
+        }
+        
         // 脉冲动画
         comboDisplay.classList.remove('pulse');
         void comboDisplay.offsetWidth;
         comboDisplay.classList.add('pulse');
     } else {
-        comboDisplay.classList.remove('show');
+        comboDisplay.classList.remove('show', 'hot');
     }
 }
 
