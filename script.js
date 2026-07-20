@@ -671,31 +671,30 @@ async function checkApiAvailability() {
     }
 }
 
-// ========== 数据存储（混合模式：本地 + 云端 API）==========
-const STORAGE_KEY = 'rhythmBlastData';
+// ========== 数据存储（仅云端，不使用本地缓存）==========
+const PLAYER_STORAGE_KEY = 'rhythmBlastPlayer';
+let currentTotalPoints = 0;
 
-function loadGameData() {
+// 只保存玩家昵称到本地（昵称不是敏感数据）
+function loadPlayerName() {
     try {
-        const data = localStorage.getItem(STORAGE_KEY);
-        return data ? JSON.parse(data) : { playerName: '', totalPoints: 0, records: [] };
+        return localStorage.getItem(PLAYER_STORAGE_KEY) || '';
     } catch {
-        return { playerName: '', totalPoints: 0, records: [] };
+        return '';
     }
 }
 
-function saveGameData(data) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+function savePlayerNameToStorage(name) {
+    try {
+        localStorage.setItem(PLAYER_STORAGE_KEY, name);
+    } catch {}
 }
 
 async function saveGameRecord(record) {
-    const data = loadGameData();
-    record.playerName = data.playerName || '匿名玩家';
-    data.records.push(record);
-    data.totalPoints += record.points;
-    saveGameData(data);
-    updatePlayerDisplay();
+    const playerName = loadPlayerName() || '匿名玩家';
+    record.playerName = playerName;
     
-    // 同步到云端 API
+    // 只通过 API 存入数据库，不存本地
     if (apiAvailable) {
         try {
             const res = await fetch(`${API_BASE}/api/submit`, {
@@ -719,87 +718,57 @@ async function saveGameRecord(record) {
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
-                console.error('Sync to cloud failed:', err.error || res.statusText);
+                console.error('保存到数据库失败:', err.error || res.statusText);
+                alert('保存失败: ' + (err.error || res.statusText));
+            } else {
+                // 更新总积分
+                currentTotalPoints += record.points;
+                updatePlayerDisplay();
             }
         } catch (err) {
-            console.error('Sync error:', err);
+            console.error('保存错误:', err);
+            alert('网络错误，无法保存记录');
         }
+    } else {
+        alert('云端 API 未连接，记录无法保存。请确保已部署到 Cloudflare Pages 并配置环境变量。');
     }
 }
 
-async function syncFromCloud() {
-    if (!apiAvailable) return;
-    
+async function fetchMyTotalPoints() {
+    if (!apiAvailable) return 0;
+    const playerName = loadPlayerName() || '匿名玩家';
     try {
-        const res = await fetch(`${API_BASE}/api/leaderboard?type=songs`);
-        if (!res.ok) throw new Error(res.statusText);
-        const { data: cloudRecords } = await res.json();
-        
-        const data = loadGameData();
-        const localHashes = new Set(data.records.map(r => 
-            `${r.songId}_${r.score}_${r.timestamp}`
-        ));
-        
-        let added = 0;
-        cloudRecords.forEach(cr => {
-            const hash = `${cr.song_id}_${cr.score}_${new Date(cr.created_at).getTime()}`;
-            if (!localHashes.has(hash)) {
-                data.records.push({
-                    songId: cr.song_id,
-                    songTitle: cr.song_title,
-                    score: cr.score,
-                    accuracy: cr.accuracy,
-                    rank: cr.rank,
-                    maxCombo: cr.max_combo,
-                    points: cr.points,
-                    playerName: cr.player_name,
-                    stats: {
-                        perfect: cr.perfect || 0,
-                        great: cr.great || 0,
-                        good: cr.good || 0,
-                        miss: cr.miss || 0
-                    },
-                    timestamp: new Date(cr.created_at).getTime()
-                });
-                added++;
-            }
-        });
-        
-        // 重新计算总积分（只算当前玩家）
-        const currentName = data.playerName || '匿名玩家';
-        data.totalPoints = data.records
-            .filter(r => r.playerName === currentName)
-            .reduce((sum, r) => sum + r.points, 0);
-        
-        saveGameData(data);
-        updatePlayerDisplay();
-        
-        if (added > 0) {
-            console.log(`从云端同步了 ${added} 条记录`);
-        }
-    } catch (err) {
-        console.error('Sync from cloud failed:', err);
+        const res = await fetch(`${API_BASE}/api/leaderboard?type=total`);
+        if (!res.ok) return 0;
+        const { data } = await res.json();
+        const myData = data.find(p => p.player_name === playerName);
+        return myData ? Number(myData.total_points) : 0;
+    } catch {
+        return 0;
     }
 }
 
 function updatePlayerDisplay() {
-    const data = loadGameData();
     const nameInput = document.getElementById('playerName');
-    if (nameInput && data.playerName) nameInput.value = data.playerName;
+    const savedName = loadPlayerName();
+    if (nameInput && savedName) nameInput.value = savedName;
     const pointsEl = document.getElementById('totalPoints');
-    if (pointsEl) pointsEl.textContent = data.totalPoints.toLocaleString();
+    if (pointsEl) pointsEl.textContent = currentTotalPoints.toLocaleString();
 }
 
 function savePlayerName() {
     const nameInput = document.getElementById('playerName');
     if (!nameInput) return;
     const name = nameInput.value.trim() || '匿名玩家';
-    const data = loadGameData();
-    data.playerName = name;
-    saveGameData(data);
+    savePlayerNameToStorage(name);
+    // 重新获取总积分
+    fetchMyTotalPoints().then(p => {
+        currentTotalPoints = p;
+        updatePlayerDisplay();
+    });
 }
 
-// ========== 排行榜（支持云端）==========
+// ========== 排行榜（仅云端）==========
 let currentLeaderboardTab = 'total';
 
 function showLeaderboard() {
@@ -815,154 +784,100 @@ function switchLeaderboardTab(tab) {
 
 async function renderLeaderboard() {
     const container = document.getElementById('leaderboardContent');
-    const data = loadGameData();
-    const currentName = data.playerName || '匿名玩家';
+    const currentName = loadPlayerName() || '匿名玩家';
     
-    // 如果云端 API 可用，优先从云端获取
-    if (apiAvailable) {
-        container.innerHTML = '<div class="empty-leaderboard"><p>加载中...</p></div>';
-        
-        try {
-            if (currentLeaderboardTab === 'total') {
-                // 从云端获取总积分排行
-                const res = await fetch(`${API_BASE}/api/leaderboard?type=total`);
-                if (!res.ok) throw new Error(res.statusText);
-                const { data: totals } = await res.json();
+    if (!apiAvailable) {
+        container.innerHTML = `
+            <div class="empty-leaderboard">
+                <div class="empty-icon">⚠️</div>
+                <p>云端 API 未连接</p>
+                <p style="font-size:13px;color:var(--text-muted);margin-top:8px;">请确保已部署到 Cloudflare Pages 并配置了 Supabase 环境变量</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = '<div class="empty-leaderboard"><p>加载中...</p></div>';
+    
+    try {
+        if (currentLeaderboardTab === 'total') {
+            const res = await fetch(`${API_BASE}/api/leaderboard?type=total`);
+            if (!res.ok) throw new Error(res.statusText);
+            const { data: totals } = await res.json();
+            
+            // 确保当前玩家在列表中
+            const myData = totals.find(p => p.player_name === currentName);
+            if (!myData && currentTotalPoints > 0) {
+                totals.push({
+                    player_name: currentName,
+                    total_points: currentTotalPoints,
+                    play_count: 0,
+                    best_accuracy: 0
+                });
+                totals.sort((a, b) => b.total_points - a.total_points);
+            }
+            
+            if (totals.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-leaderboard">
+                        <div class="empty-icon">🎮</div>
+                        <p>还没有游戏记录</p>
+                        <p>去玩一把游戏，创造你的记录吧！</p>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = `
+                    <div class="leaderboard-section">
+                        <h3>🏆 全球总积分排名</h3>
+                        ${totals.map((p, i) => renderRankRow(
+                            i + 1, 
+                            p.player_name, 
+                            Number(p.total_points).toLocaleString() + ' 分', 
+                            `${p.play_count || 0} 次${p.best_accuracy ? ' · 最高 ' + Number(p.best_accuracy).toFixed(1) + '%' : ''}`, 
+                            p.player_name === currentName
+                        )).join('')}
+                    </div>
+                `;
+            }
+        } else {
+            // 单曲排行
+            let html = '';
+            for (const song of SONGS) {
+                const res = await fetch(`${API_BASE}/api/leaderboard?type=songs&song_id=${song.id}`);
+                if (!res.ok) continue;
+                const { data: songRecords } = await res.json();
                 
-                // 确保当前玩家在列表中
-                const myData = totals.find(p => p.player_name === currentName);
-                if (!myData && data.totalPoints > 0) {
-                    totals.push({
-                        player_name: currentName,
-                        total_points: data.totalPoints,
-                        play_count: data.records.filter(r => r.playerName === currentName).length,
-                        best_accuracy: 0
-                    });
-                    totals.sort((a, b) => b.total_points - a.total_points);
-                }
-                
-                if (totals.length === 0) {
-                    container.innerHTML = `
-                        <div class="empty-leaderboard">
-                            <div class="empty-icon">🎮</div>
-                            <p>还没有游戏记录</p>
-                            <p>去玩一把游戏，创造你的记录吧！</p>
-                        </div>
-                    `;
-                } else {
-                    container.innerHTML = `
+                if (songRecords && songRecords.length > 0) {
+                    html += `
                         <div class="leaderboard-section">
-                            <h3>🏆 全球总积分排名</h3>
-                            ${totals.map((p, i) => renderRankRow(
+                            <h3>${song.cover} ${song.title} <span style="font-size:12px;color:var(--text-muted);">(${song.difficultyLabel})</span></h3>
+                            ${songRecords.slice(0, 5).map((r, i) => renderRankRow(
                                 i + 1, 
-                                p.player_name, 
-                                Number(p.total_points).toLocaleString() + ' 分', 
-                                `${p.play_count || 0} 次${p.best_accuracy ? ' · 最高 ' + Number(p.best_accuracy).toFixed(1) + '%' : ''}`, 
-                                p.player_name === currentName
+                                r.player_name, 
+                                Number(r.score).toLocaleString(), 
+                                `${r.rank} · ${Number(r.accuracy).toFixed(1)}% · ${r.max_combo}combo`, 
+                                r.player_name === currentName
                             )).join('')}
                         </div>
                     `;
                 }
-            } else {
-                // 单曲排行
-                let html = '';
-                for (const song of SONGS) {
-                    const res = await fetch(`${API_BASE}/api/leaderboard?type=songs&song_id=${song.id}`);
-                    if (!res.ok) continue;
-                    const { data: songRecords } = await res.json();
-                    
-                    if (songRecords.length > 0) {
-                        html += `
-                            <div class="leaderboard-section">
-                                <h3>${song.cover} ${song.title} <span style="font-size:12px;color:var(--text-muted);">(${song.difficultyLabel})</span></h3>
-                                ${songRecords.map((r, i) => renderRankRow(
-                                    i + 1, 
-                                    r.player_name, 
-                                    Number(r.score).toLocaleString(), 
-                                    `${r.rank} · ${Number(r.accuracy).toFixed(1)}% · ${r.max_combo}combo`, 
-                                    r.player_name === currentName
-                                )).join('')}
-                            </div>
-                        `;
-                    }
-                }
-                
-                container.innerHTML = html || `
-                    <div class="empty-leaderboard">
-                        <div class="empty-icon">🎵</div>
-                        <p>还没有单曲记录</p>
-                        <p>完成歌曲后会在这里显示排行榜</p>
-                    </div>
-                `;
             }
-            return;
-        } catch (err) {
-            console.error('Cloud leaderboard error:', err);
-            // 出错时降级到本地数据
-        }
-    }
-    
-    // 本地数据排行（降级方案）
-    if (currentLeaderboardTab === 'total') {
-        const playerTotals = {};
-        data.records.forEach(r => {
-            const name = r.playerName || '匿名玩家';
-            if (!playerTotals[name]) playerTotals[name] = { name, totalPoints: 0, plays: 0, bestRank: 'D' };
-            playerTotals[name].totalPoints += r.points;
-            playerTotals[name].plays++;
-            const rankOrder = { 'S+': 7, 'S': 6, 'A': 5, 'B': 4, 'C': 3, 'D': 2 };
-            if (rankOrder[r.rank] > rankOrder[playerTotals[name].bestRank]) {
-                playerTotals[name].bestRank = r.rank;
-            }
-        });
-        
-        if (!playerTotals[currentName]) {
-            playerTotals[currentName] = { name: currentName, totalPoints: data.totalPoints, plays: 0, bestRank: '-' };
-        } else {
-            playerTotals[currentName].totalPoints = data.totalPoints;
-        }
-        
-        const sorted = Object.values(playerTotals).sort((a, b) => b.totalPoints - a.totalPoints);
-        
-        if (sorted.length === 0 || (sorted.length === 1 && sorted[0].totalPoints === 0)) {
-            container.innerHTML = `
-                <div class="empty-leaderboard">
-                    <div class="empty-icon">🎮</div>
-                    <p>还没有游戏记录</p>
-                    <p>去玩一把游戏，创造你的记录吧！</p>
-                </div>
-            `;
-        } else {
-            container.innerHTML = `
-                <div class="leaderboard-section">
-                    <h3>🏆 总积分排名（本地）</h3>
-                    ${sorted.map((p, i) => renderRankRow(i + 1, p.name, p.totalPoints.toLocaleString() + ' 分', `${p.plays} 次 · 最高 ${p.bestRank}`, p.name === currentName)).join('')}
-                </div>
-            `;
-        }
-    } else {
-        let html = '';
-        SONGS.forEach(song => {
-            const songRecords = data.records
-                .filter(r => r.songId === song.id)
-                .sort((a, b) => b.score - a.score)
-                .slice(0, 5);
             
-            if (songRecords.length > 0) {
-                html += `
-                    <div class="leaderboard-section">
-                        <h3>${song.cover} ${song.title} <span style="font-size:12px;color:var(--text-muted);">(${song.difficultyLabel})</span></h3>
-                        ${songRecords.map((r, i) => renderRankRow(i + 1, r.playerName, r.score.toLocaleString(), `${r.rank} · ${r.accuracy.toFixed(1)}% · ${r.maxCombo}combo`, r.playerName === currentName)).join('')}
-                    </div>
-                `;
-            }
-        });
-        
-        container.innerHTML = html || `
+            container.innerHTML = html || `
+                <div class="empty-leaderboard">
+                    <div class="empty-icon">🎵</div>
+                    <p>还没有单曲记录</p>
+                    <p>完成歌曲后会在这里显示排行榜</p>
+                </div>
+            `;
+        }
+    } catch (err) {
+        console.error('排行榜加载失败:', err);
+        container.innerHTML = `
             <div class="empty-leaderboard">
-                <div class="empty-icon">🎵</div>
-                <p>还没有单曲记录</p>
-                <p>完成歌曲后会在这里显示排行榜</p>
+                <div class="empty-icon">❌</div>
+                <p>排行榜加载失败</p>
+                <p style="font-size:13px;color:var(--text-muted);margin-top:8px;">${err.message || '网络错误'}</p>
             </div>
         `;
     }
@@ -982,14 +897,7 @@ function renderRankRow(rank, player, score, extra, isYou) {
 }
 
 function clearLeaderboard() {
-    if (confirm('确定要清空本地游戏记录吗？（云端记录不会被删除）')) {
-        const data = loadGameData();
-        data.records = [];
-        data.totalPoints = 0;
-        saveGameData(data);
-        updatePlayerDisplay();
-        renderLeaderboard();
-    }
+    alert('云端记录无法从客户端删除。如需清除，请在 Supabase 控制台操作。');
 }
 
 // ========== 天赋测试（简化版）==========
@@ -1117,9 +1025,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // 加载玩家信息
     updatePlayerDisplay();
     
-    // 检测云端 API 是否可用
+    // 检测云端 API 是否可用，并获取玩家总积分
     checkApiAvailability().then(() => {
-        if (apiAvailable) syncFromCloud();
+        if (apiAvailable) {
+            fetchMyTotalPoints().then(p => {
+                currentTotalPoints = p;
+                updatePlayerDisplay();
+            });
+        }
     });
     
     // 保存昵称
