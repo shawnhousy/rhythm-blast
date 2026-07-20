@@ -1,13 +1,21 @@
 // Cloudflare Pages Function: GET /api/leaderboard
-// 获取排行榜数据
+// 使用原生 fetch 调用 Supabase REST API，不依赖外部 SDK
+
+function makeSupabaseHeaders(key) {
+  return {
+    'apikey': key,
+    'Authorization': `Bearer ${key}`,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation',
+  };
+}
 
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
-  const type = url.searchParams.get('type') || 'total'; // 'total' or 'songs'
+  const type = url.searchParams.get('type') || 'total';
   const songId = url.searchParams.get('song_id') || '';
 
-  // CORS 头
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
@@ -29,42 +37,39 @@ export async function onRequest(context) {
       );
     }
 
-    // 动态导入 Supabase SDK
-    const { createClient } = await import(
-      'https://esm.sh/@supabase/supabase-js@2'
-    );
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    let data, error;
+    const baseUrl = supabaseUrl.replace(/\/$/, '');
+    const headers = makeSupabaseHeaders(supabaseKey);
+    let data;
 
     if (type === 'total') {
-      // 总积分排行
-      ({ data, error } = await supabase
-        .from('player_total_points')
-        .select('*')
-        .order('total_points', { ascending: false })
-        .limit(100));
+      // 总积分排行 - 从 player_total_points 视图
+      const resp = await fetch(
+        `${baseUrl}/rest/v1/player_total_points?order=total_points.desc&limit=100`,
+        { headers, method: 'GET' }
+      );
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`Supabase error (${resp.status}): ${errText}`);
+      }
+      data = await resp.json();
     } else if (type === 'songs') {
       // 单曲排行
-      let query = supabase
-        .from('leaderboard')
-        .select('*');
-
+      let queryUrl = `${baseUrl}/rest/v1/leaderboard?order=score.desc&limit=200`;
       if (songId) {
-        query = query.eq('song_id', songId);
+        queryUrl += `&song_id=eq.${encodeURIComponent(songId)}`;
       }
-
-      ({ data, error } = await query
-        .order('score', { ascending: false })
-        .limit(200));
+      const resp = await fetch(queryUrl, { headers, method: 'GET' });
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`Supabase error (${resp.status}): ${errText}`);
+      }
+      data = await resp.json();
     } else {
       return new Response(
         JSON.stringify({ error: '无效的 type 参数' }),
         { headers: corsHeaders, status: 400 }
       );
     }
-
-    if (error) throw error;
 
     return new Response(JSON.stringify({ success: true, data }), {
       headers: corsHeaders,

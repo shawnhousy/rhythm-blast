@@ -1,10 +1,18 @@
 // Cloudflare Pages Function: POST /api/submit
-// 提交游戏记录到排行榜
+// 使用原生 fetch 调用 Supabase REST API，不依赖外部 SDK
+
+function makeSupabaseHeaders(key) {
+  return {
+    'apikey': key,
+    'Authorization': `Bearer ${key}`,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation',
+  };
+}
 
 export async function onRequest(context) {
   const { request, env } = context;
 
-  // CORS 头
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -98,39 +106,42 @@ export async function onRequest(context) {
       );
     }
 
-    // 动态导入 Supabase SDK
-    const { createClient } = await import(
-      'https://esm.sh/@supabase/supabase-js@2'
-    );
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    // 使用 fetch 直接调用 Supabase REST API
+    const baseUrl = supabaseUrl.replace(/\/$/, '');
+    const headers = makeSupabaseHeaders(supabaseKey);
 
-    // 插入记录
-    const { data, error } = await supabase
-      .from('leaderboard')
-      .insert({
-        player_name: body.player_name.trim(),
-        song_id: body.song_id,
-        song_title: body.song_title || 'Unknown',
-        score: Math.floor(body.score),
-        accuracy: Number(body.accuracy.toFixed(2)),
-        rank: body.rank,
-        max_combo: Math.floor(body.max_combo),
-        points: Math.floor(body.points),
-        perfect: Math.floor(body.perfect || 0),
-        great: Math.floor(body.great || 0),
-        good: Math.floor(body.good || 0),
-        miss: Math.floor(body.miss || 0),
-        difficulty: validDifficulties.includes(body.difficulty) ? body.difficulty : 'normal',
-      })
-      .select();
+    const insertData = {
+      player_name: body.player_name.trim(),
+      song_id: body.song_id,
+      song_title: body.song_title || 'Unknown',
+      score: Math.floor(body.score),
+      accuracy: Number(Number(body.accuracy).toFixed(2)),
+      rank: body.rank,
+      max_combo: Math.floor(body.max_combo),
+      points: Math.floor(body.points),
+      perfect: Math.floor(body.perfect || 0),
+      great: Math.floor(body.great || 0),
+      good: Math.floor(body.good || 0),
+      miss: Math.floor(body.miss || 0),
+      difficulty: validDifficulties.includes(body.difficulty) ? body.difficulty : 'normal',
+    };
 
-    if (error) {
-      console.error('Supabase insert error:', error);
+    const resp = await fetch(`${baseUrl}/rest/v1/leaderboard`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(insertData),
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error('Supabase insert error:', errText);
       return new Response(
-        JSON.stringify({ error: '数据库写入失败: ' + error.message }),
+        JSON.stringify({ error: '数据库写入失败: ' + errText }),
         { headers: corsHeaders, status: 500 }
       );
     }
+
+    const data = await resp.json();
 
     return new Response(
       JSON.stringify({ success: true, data: data[0] }),
