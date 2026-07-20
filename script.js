@@ -673,6 +673,17 @@ async function checkApiAvailability() {
 
 // ========== 数据存储（仅云端，不使用本地缓存）==========
 const PLAYER_STORAGE_KEY = 'rhythmBlastPlayer';
+const OLD_STORAGE_KEY = 'rhythmBlastData';
+const OLD_SB_KEY = 'rhythmBlastSupabaseConfig';
+
+// 清理旧版本的本地缓存数据
+(function cleanOldCache() {
+    try {
+        localStorage.removeItem(OLD_STORAGE_KEY);
+        localStorage.removeItem(OLD_SB_KEY);
+    } catch {}
+})();
+
 let currentTotalPoints = 0;
 
 // 只保存玩家昵称到本地（昵称不是敏感数据）
