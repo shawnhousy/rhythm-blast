@@ -590,6 +590,9 @@ function endGame() {
     else if (accuracy >= 60) rank = 'C';
     else rank = 'D';
     
+    // 计算积分
+    const pointsData = calculatePoints(accuracy, rank, game.score, game.maxCombo);
+    
     document.getElementById('resultRank').textContent = rank;
     document.getElementById('resultScore').textContent = game.score.toLocaleString();
     document.getElementById('resultMaxCombo').textContent = game.maxCombo;
@@ -599,7 +602,210 @@ function endGame() {
     document.getElementById('resultMiss').textContent = game.stats.miss;
     document.getElementById('resultAccuracy').textContent = accuracy.toFixed(2) + '%';
     
+    // 显示积分
+    document.getElementById('pointsBreakdown').innerHTML = `
+        <div class="points-item"><span>基础分 (${game.score.toLocaleString()})</span><span>×1</span></div>
+        <div class="points-item"><span>准确率 (${accuracy.toFixed(1)}%)</span><span>×${(accuracy/100).toFixed(2)}</span></div>
+        <div class="points-item"><span>难度 (${game.currentSong.difficultyLabel})</span><span>×${pointsData.difficultyMultiplier}</span></div>
+        <div class="points-item"><span>评级加成 (${rank})</span><span>×${pointsData.rankMultiplier}</span></div>
+        <div class="points-item"><span>最大连击 (${game.maxCombo})</span><span>+${pointsData.comboBonus}</span></div>
+    `;
+    document.getElementById('pointsEarned').textContent = '+' + pointsData.total;
+    
+    // 保存记录
+    saveGameRecord({
+        songId: game.currentSong.id,
+        songTitle: game.currentSong.title,
+        score: game.score,
+        accuracy: accuracy,
+        rank: rank,
+        maxCombo: game.maxCombo,
+        points: pointsData.total,
+        stats: { ...game.stats },
+        timestamp: Date.now()
+    });
+    
     showScreen('result');
+}
+
+// ========== 积分系统 ==========
+function calculatePoints(accuracy, rank, score, maxCombo) {
+    // 难度倍率
+    const difficultyMultipliers = { easy: 1, normal: 1.5, hard: 2, expert: 3 };
+    const diffMult = difficultyMultipliers[game.currentSong.difficulty] || 1;
+    
+    // 评级倍率
+    const rankMultipliers = { 'S+': 2, 'S': 1.7, 'A': 1.4, 'B': 1.2, 'C': 1.0, 'D': 0.8 };
+    const rankMult = rankMultipliers[rank] || 1;
+    
+    // 连击加成
+    const comboBonus = Math.floor(maxCombo / 10) * 10;
+    
+    // 总分计算
+    const basePoints = Math.floor(score / 100);
+    let total = Math.floor(basePoints * (accuracy / 100) * diffMult * rankMult) + comboBonus;
+    total = Math.max(0, total);
+    
+    return {
+        basePoints,
+        difficultyMultiplier: diffMult,
+        rankMultiplier: rankMult,
+        comboBonus,
+        total
+    };
+}
+
+// ========== 数据存储 ==========
+const STORAGE_KEY = 'rhythmBlastData';
+
+function loadGameData() {
+    try {
+        const data = localStorage.getItem(STORAGE_KEY);
+        return data ? JSON.parse(data) : { playerName: '', totalPoints: 0, records: [] };
+    } catch {
+        return { playerName: '', totalPoints: 0, records: [] };
+    }
+}
+
+function saveGameData(data) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function saveGameRecord(record) {
+    const data = loadGameData();
+    record.playerName = data.playerName || '匿名玩家';
+    data.records.push(record);
+    data.totalPoints += record.points;
+    saveGameData(data);
+    updatePlayerDisplay();
+}
+
+function updatePlayerDisplay() {
+    const data = loadGameData();
+    const nameInput = document.getElementById('playerName');
+    if (nameInput && data.playerName) nameInput.value = data.playerName;
+    const pointsEl = document.getElementById('totalPoints');
+    if (pointsEl) pointsEl.textContent = data.totalPoints.toLocaleString();
+}
+
+function savePlayerName() {
+    const nameInput = document.getElementById('playerName');
+    if (!nameInput) return;
+    const name = nameInput.value.trim() || '匿名玩家';
+    const data = loadGameData();
+    data.playerName = name;
+    saveGameData(data);
+}
+
+// ========== 排行榜 ==========
+let currentLeaderboardTab = 'total';
+
+function showLeaderboard() {
+    renderLeaderboard();
+    showScreen('leaderboard');
+}
+
+function switchLeaderboardTab(tab) {
+    currentLeaderboardTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    renderLeaderboard();
+}
+
+function renderLeaderboard() {
+    const data = loadGameData();
+    const container = document.getElementById('leaderboardContent');
+    
+    if (currentLeaderboardTab === 'total') {
+        // 总积分排行：汇总每个玩家的总积分
+        const playerTotals = {};
+        data.records.forEach(r => {
+            const name = r.playerName || '匿名玩家';
+            if (!playerTotals[name]) playerTotals[name] = { name, totalPoints: 0, plays: 0, bestRank: 'D' };
+            playerTotals[name].totalPoints += r.points;
+            playerTotals[name].plays++;
+            const rankOrder = { 'S+': 7, 'S': 6, 'A': 5, 'B': 4, 'C': 3, 'D': 2 };
+            if (rankOrder[r.rank] > rankOrder[playerTotals[name].bestRank]) {
+                playerTotals[name].bestRank = r.rank;
+            }
+        });
+        
+        // 添加当前玩家（即使没有记录）
+        const currentName = data.playerName || '匿名玩家';
+        if (!playerTotals[currentName]) {
+            playerTotals[currentName] = { name: currentName, totalPoints: data.totalPoints, plays: 0, bestRank: '-' };
+        } else {
+            playerTotals[currentName].totalPoints = data.totalPoints;
+        }
+        
+        const sorted = Object.values(playerTotals).sort((a, b) => b.totalPoints - a.totalPoints);
+        
+        if (sorted.length === 0 || (sorted.length === 1 && sorted[0].totalPoints === 0)) {
+            container.innerHTML = `
+                <div class="empty-leaderboard">
+                    <div class="empty-icon">🎮</div>
+                    <p>还没有游戏记录</p>
+                    <p>去玩一把游戏，创造你的记录吧！</p>
+                </div>
+            `;
+        } else {
+            container.innerHTML = `
+                <div class="leaderboard-section">
+                    <h3>🏆 总积分排名</h3>
+                    ${sorted.map((p, i) => renderRankRow(i + 1, p.name, p.totalPoints.toLocaleString() + ' 分', `${p.plays} 次 · 最高 ${p.bestRank}`, p.name === currentName)).join('')}
+                </div>
+            `;
+        }
+    } else {
+        // 单曲排行
+        let html = '';
+        SONGS.forEach(song => {
+            const songRecords = data.records
+                .filter(r => r.songId === song.id)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 5);
+            
+            if (songRecords.length > 0) {
+                html += `
+                    <div class="leaderboard-section">
+                        <h3>${song.cover} ${song.title} <span style="font-size:12px;color:var(--text-muted);">(${song.difficultyLabel})</span></h3>
+                        ${songRecords.map((r, i) => renderRankRow(i + 1, r.playerName, r.score.toLocaleString(), `${r.rank} · ${r.accuracy.toFixed(1)}% · ${r.maxCombo}combo`, r.playerName === (data.playerName || '匿名玩家'))).join('')}
+                    </div>
+                `;
+            }
+        });
+        
+        container.innerHTML = html || `
+            <div class="empty-leaderboard">
+                <div class="empty-icon">🎵</div>
+                <p>还没有单曲记录</p>
+                <p>完成歌曲后会在这里显示排行榜</p>
+            </div>
+        `;
+    }
+}
+
+function renderRankRow(rank, player, score, extra, isYou) {
+    const rankClass = rank <= 3 ? `top${rank}` : '';
+    const badgeClass = rank === 1 ? 'r1' : rank === 2 ? 'r2' : rank === 3 ? 'r3' : 'normal';
+    return `
+        <div class="leaderboard-row ${rankClass}">
+            <div class="rank-badge ${badgeClass}">${rank}</div>
+            <div class="rank-player ${isYou ? 'you' : ''}">${player}${isYou ? ' (你)' : ''}</div>
+            <div class="rank-score">${score}</div>
+            <div class="rank-extra">${extra}</div>
+        </div>
+    `;
+}
+
+function clearLeaderboard() {
+    if (confirm('确定要清空所有游戏记录吗？此操作不可恢复。')) {
+        const data = loadGameData();
+        data.records = [];
+        data.totalPoints = 0;
+        saveGameData(data);
+        updatePlayerDisplay();
+        renderLeaderboard();
+    }
 }
 
 // ========== 天赋测试（简化版）==========
@@ -723,6 +929,19 @@ document.addEventListener('DOMContentLoaded', () => {
 // ========== 初始化 ==========
 document.addEventListener('DOMContentLoaded', () => {
     initBgParticles();
+    
+    // 加载玩家信息
+    updatePlayerDisplay();
+    
+    // 保存昵称
+    const nameInput = document.getElementById('playerName');
+    if (nameInput) {
+        nameInput.addEventListener('change', savePlayerName);
+        nameInput.addEventListener('blur', savePlayerName);
+        nameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') nameInput.blur();
+        });
+    }
     
     // 点击任意位置启用音频
     document.addEventListener('click', initAudio, { once: true });
