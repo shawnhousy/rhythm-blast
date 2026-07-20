@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rhythm Blast - 节奏爆破</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <canvas id="bgCanvas"></canvas>
+
+    <!-- 主菜单 -->
+    <div id="menu" class="screen active">
+        <div class="menu-container">
+            <h1 class="game-title">
+                <span class="title-line">RHYTHM</span>
+                <span class="title-line gradient">BLAST</span>
+            </h1>
+            <p class="game-subtitle">节奏爆破 · 挑战你的极限</p>
+            
+            <div class="menu-buttons">
+                <button class="menu-btn primary" onclick="showSongSelect()">
+                    <span>🎵 开始游戏</span>
+                </button>
+                <button class="menu-btn" onclick="showHowToPlay()">
+                    <span>📖 游戏说明</span>
+                </button>
+                <button class="menu-btn" onclick="showTalentTest()">
+                    <span>⚡ 天赋测试</span>
+                </button>
+            </div>
+
+            <div class="menu-footer">
+                <p>使用 D F J K 键进行游戏</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 游戏说明 -->
+    <div id="howtoplay" class="screen">
+        <div class="info-container">
+            <h2 class="info-title">游戏说明</h2>
+            <div class="howto-content">
+                <div class="howto-item">
+                    <div class="howto-icon">🎹</div>
+                    <div class="howto-text">
+                        <h4>操作方式</h4>
+                        <p>当音符下落到判定线时，按下对应按键：<strong>D F J K</strong></p>
+                    </div>
+                </div>
+                <div class="howto-item">
+                    <div class="howto-icon">🎯</div>
+                    <div class="howto-text">
+                        <h4>判定等级</h4>
+                        <p><span class="judge-perfect">PERFECT</span> 完美 · 
+                           <span class="judge-great">GREAT</span> 优秀 · 
+                           <span class="judge-good">GOOD</span> 良好 · 
+                           <span class="judge-miss">MISS</span> 失误</p>
+                    </div>
+                </div>
+                <div class="howto-item">
+                    <div class="howto-icon">🔥</div>
+                    <div class="howto-text">
+                        <h4>连击系统</h4>
+                        <p>连续命中可以累积 Combo，Combo 越高分数加成越多！</p>
+                    </div>
+                </div>
+                <div class="howto-item">
+                    <div class="howto-icon">⏸️</div>
+                    <div class="howto-text">
+                        <h4>暂停游戏</h4>
+                        <p>游戏中按下 <strong>ESC</strong> 或 <strong>空格</strong> 可以暂停</p>
+                    </div>
+                </div>
+            </div>
+            <button class="menu-btn" onclick="showMenu()">返回主菜单</button>
+        </div>
+    </div>
+
+    <!-- 天赋测试 -->
+    <div id="talent" class="screen">
+        <div class="info-container">
+            <h2 class="info-title">天赋测试</h2>
+            <div class="talent-mini">
+                <div class="mini-test">
+                    <h3>⚡ 手速测试</h3>
+                    <p>10秒内尽可能多按</p>
+                    <div class="mini-cps" id="miniCps">
+                        <div class="mini-cps-count" id="miniCpsCount">0</div>
+                        <div class="mini-cps-time" id="miniCpsTime">10.0s</div>
+                    </div>
+                    <button class="menu-btn small" id="miniCpsBtn" onclick="startMiniCps()">开始</button>
+                    <div class="mini-result" id="miniCpsResult" style="display:none;"></div>
+                </div>
+                <div class="mini-test">
+                    <h3>🎯 反应测试</h3>
+                    <p>变绿时立即按键</p>
+                    <div class="mini-reaction" id="miniReaction">
+                        <div class="mini-reaction-box" id="miniReactionBox">点击开始</div>
+                    </div>
+                    <div class="mini-result" id="miniReactionResult" style="display:none;"></div>
+                </div>
+            </div>
+            <button class="menu-btn" onclick="showMenu()">返回主菜单</button>
+        </div>
+    </div>
+
+    <!-- 选歌界面 -->
+    <div id="songSelect" class="screen">
+        <div class="song-container">
+            <h2 class="info-title">选择歌曲</h2>
+            <div class="song-list" id="songList"></div>
+            <button class="menu-btn" onclick="showMenu()">返回主菜单</button>
+        </div>
+    </div>
+
+    <!-- 游戏界面 -->
+    <div id="game" class="screen">
+        <!-- 顶部信息 -->
+        <div class="game-hud">
+            <div class="hud-left">
+                <div class="hud-score">
+                    <span class="hud-label">SCORE</span>
+                    <span class="hud-value" id="score">0</span>
+                </div>
+            </div>
+            <div class="hud-center">
+                <div class="hud-combo" id="comboDisplay">
+                    <span class="combo-num" id="combo">0</span>
+                    <span class="combo-label">COMBO</span>
+                </div>
+            </div>
+            <div class="hud-right">
+                <div class="hud-progress">
+                    <div class="progress-track">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <span class="progress-text" id="progressText">0%</span>
+                </div>
+                <button class="pause-btn" onclick="togglePause()">⏸</button>
+            </div>
+        </div>
+
+        <!-- 判定文字 -->
+        <div class="judge-display" id="judgeDisplay"></div>
+
+        <!-- 游戏轨道 -->
+        <div class="game-track">
+            <div class="track-container" id="trackContainer">
+                <!-- 轨道和音符由JS生成 -->
+            </div>
+            <!-- 判定线 -->
+            <div class="judge-line">
+                <div class="judge-line-glow"></div>
+            </div>
+            <!-- 按键区域 -->
+            <div class="key-zone">
+                <div class="key" data-key="d">
+                    <span class="key-label">D</span>
+                </div>
+                <div class="key" data-key="f">
+                    <span class="key-label">F</span>
+                </div>
+                <div class="key" data-key="j">
+                    <span class="key-label">J</span>
+                </div>
+                <div class="key" data-key="k">
+                    <span class="key-label">K</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 暂停菜单 -->
+        <div class="pause-menu" id="pauseMenu">
+            <div class="pause-content">
+                <h2>游戏暂停</h2>
+                <button class="menu-btn primary" onclick="togglePause()">继续游戏</button>
+                <button class="menu-btn" onclick="restartSong()">重新开始</button>
+                <button class="menu-btn" onclick="quitGame()">返回选歌</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 结算界面 -->
+    <div id="result" class="screen">
+        <div class="result-container">
+            <h2 class="result-title">RESULTS</h2>
+            <div class="result-rank" id="resultRank">S</div>
+            <div class="result-score">
+                <span class="result-score-value" id="resultScore">0</span>
+                <span class="result-score-label">分</span>
+            </div>
+            
+            <div class="result-stats">
+                <div class="stat-row">
+                    <span class="stat-label">MAX COMBO</span>
+                    <span class="stat-value" id="resultMaxCombo">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label judge-perfect">PERFECT</span>
+                    <span class="stat-value" id="resultPerfect">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label judge-great">GREAT</span>
+                    <span class="stat-value" id="resultGreat">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label judge-good">GOOD</span>
+                    <span class="stat-value" id="resultGood">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label judge-miss">MISS</span>
+                    <span class="stat-value" id="resultMiss">0</span>
+                </div>
+            </div>
+
+            <div class="result-accuracy">
+                <span>准确率</span>
+                <span id="resultAccuracy">0%</span>
+            </div>
+
+            <div class="result-buttons">
+                <button class="menu-btn primary" onclick="restartSong()">再来一次</button>
+                <button class="menu-btn" onclick="showSongSelect()">选择歌曲</button>
+                <button class="menu-btn" onclick="showMenu()">主菜单</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
