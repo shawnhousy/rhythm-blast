@@ -655,7 +655,70 @@ function calculatePoints(accuracy, rank, score, maxCombo) {
     };
 }
 
-// ========== 数据存储 ==========
+// ========== Supabase 配置 ==========
+let supabase = null;
+let supabaseConnected = false;
+
+const SUPABASE_STORAGE_KEY = 'rhythmBlastSupabaseConfig';
+
+function loadSupabaseConfig() {
+    try {
+        return JSON.parse(localStorage.getItem(SUPABASE_STORAGE_KEY) || 'null');
+    } catch {
+        return null;
+    }
+}
+
+function saveSupabaseConfig() {
+    const url = document.getElementById('supabaseUrl').value.trim();
+    const key = document.getElementById('supabaseKey').value.trim();
+    
+    if (!url || !key) {
+        setSupabaseStatus('请填写 URL 和 Key', 'error');
+        return;
+    }
+    
+    localStorage.setItem(SUPABASE_STORAGE_KEY, JSON.stringify({ url, key }));
+    initSupabase(url, key);
+}
+
+function initSupabase(url, key) {
+    try {
+        supabase = window.supabase.createClient(url, key);
+        setSupabaseStatus('连接中...', '');
+        
+        // 测试连接
+        supabase.from('leaderboard').select('count', { count: 'exact', head: true })
+            .then(() => {
+                supabaseConnected = true;
+                setSupabaseStatus('✅ 已连接', 'connected');
+                // 同步云端数据到本地
+                syncFromCloud();
+            })
+            .catch(err => {
+                console.error('Supabase connection error:', err);
+                supabaseConnected = false;
+                setSupabaseStatus('连接失败: ' + (err.message || '请检查表是否存在'), 'error');
+            });
+    } catch (err) {
+        console.error('Supabase init error:', err);
+        setSupabaseStatus('SDK 加载失败', 'error');
+    }
+}
+
+function setSupabaseStatus(text, type) {
+    const el = document.getElementById('supabaseStatus');
+    if (el) {
+        el.textContent = text;
+        el.className = 'config-status' + (type ? ' ' + type : '');
+    }
+}
+
+function toggleSupabaseConfig() {
+    document.getElementById('supabaseConfig').classList.toggle('open');
+}
+
+// ========== 数据存储（混合模式：本地 + Supabase）==========
 const STORAGE_KEY = 'rhythmBlastData';
 
 function loadGameData() {
@@ -671,13 +734,96 @@ function saveGameData(data) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
-function saveGameRecord(record) {
+async function saveGameRecord(record) {
     const data = loadGameData();
     record.playerName = data.playerName || '匿名玩家';
     data.records.push(record);
     data.totalPoints += record.points;
     saveGameData(data);
     updatePlayerDisplay();
+    
+    // 同步到 Supabase
+    if (supabaseConnected) {
+        try {
+            const { error } = await supabase.from('leaderboard').insert({
+                player_name: record.playerName,
+                song_id: record.songId,
+                song_title: record.songTitle,
+                score: record.score,
+                accuracy: record.accuracy,
+                rank: record.rank,
+                max_combo: record.maxCombo,
+                points: record.points,
+                perfect: record.stats.perfect,
+                great: record.stats.great,
+                good: record.stats.good,
+                miss: record.stats.miss,
+                difficulty: game.currentSong ? game.currentSong.difficulty : 'normal'
+            });
+            if (error) console.error('Sync to Supabase failed:', error);
+        } catch (err) {
+            console.error('Sync error:', err);
+        }
+    }
+}
+
+async function syncFromCloud() {
+    if (!supabaseConnected) return;
+    
+    try {
+        const { data: cloudRecords, error } = await supabase
+            .from('leaderboard')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(500);
+        
+        if (error) throw error;
+        
+        const data = loadGameData();
+        const localHashes = new Set(data.records.map(r => 
+            `${r.songId}_${r.score}_${r.timestamp}`
+        ));
+        
+        let added = 0;
+        cloudRecords.forEach(cr => {
+            const hash = `${cr.song_id}_${cr.score}_${new Date(cr.created_at).getTime()}`;
+            if (!localHashes.has(hash)) {
+                data.records.push({
+                    songId: cr.song_id,
+                    songTitle: cr.song_title,
+                    score: cr.score,
+                    accuracy: cr.accuracy,
+                    rank: cr.rank,
+                    maxCombo: cr.max_combo,
+                    points: cr.points,
+                    playerName: cr.player_name,
+                    stats: {
+                        perfect: cr.perfect || 0,
+                        great: cr.great || 0,
+                        good: cr.good || 0,
+                        miss: cr.miss || 0
+                    },
+                    timestamp: new Date(cr.created_at).getTime()
+                });
+                added++;
+            }
+        });
+        
+        // 重新计算总积分（只算当前玩家）
+        const currentName = data.playerName || '匿名玩家';
+        data.totalPoints = data.records
+            .filter(r => r.playerName === currentName)
+            .reduce((sum, r) => sum + r.points, 0);
+        
+        saveGameData(data);
+        updatePlayerDisplay();
+        
+        if (added > 0) {
+            console.log(`从云端同步了 ${added} 条记录`);
+        }
+    } catch (err) {
+        console.error('Sync from cloud failed:', err);
+    }
 }
 
 function updatePlayerDisplay() {
@@ -697,7 +843,7 @@ function savePlayerName() {
     saveGameData(data);
 }
 
-// ========== 排行榜 ==========
+// ========== 排行榜（支持云端）==========
 let currentLeaderboardTab = 'total';
 
 function showLeaderboard() {
@@ -711,12 +857,106 @@ function switchLeaderboardTab(tab) {
     renderLeaderboard();
 }
 
-function renderLeaderboard() {
-    const data = loadGameData();
+async function renderLeaderboard() {
     const container = document.getElementById('leaderboardContent');
+    const data = loadGameData();
+    const currentName = data.playerName || '匿名玩家';
     
+    // 如果连接了 Supabase，优先从云端获取
+    if (supabaseConnected) {
+        container.innerHTML = '<div class="empty-leaderboard"><p>加载中...</p></div>';
+        
+        try {
+            if (currentLeaderboardTab === 'total') {
+                // 从云端获取总积分排行
+                const { data: totals, error } = await supabase
+                    .from('player_total_points')
+                    .select('*')
+                    .order('total_points', { ascending: false })
+                    .limit(50);
+                
+                if (error) throw error;
+                
+                // 确保当前玩家在列表中
+                const myData = totals.find(p => p.player_name === currentName);
+                if (!myData && data.totalPoints > 0) {
+                    totals.push({
+                        player_name: currentName,
+                        total_points: data.totalPoints,
+                        play_count: data.records.filter(r => r.playerName === currentName).length,
+                        best_accuracy: 0
+                    });
+                    totals.sort((a, b) => b.total_points - a.total_points);
+                }
+                
+                if (totals.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-leaderboard">
+                            <div class="empty-icon">🎮</div>
+                            <p>还没有游戏记录</p>
+                            <p>去玩一把游戏，创造你的记录吧！</p>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = `
+                        <div class="leaderboard-section">
+                            <h3>🏆 全球总积分排名</h3>
+                            ${totals.map((p, i) => renderRankRow(
+                                i + 1, 
+                                p.player_name, 
+                                Number(p.total_points).toLocaleString() + ' 分', 
+                                `${p.play_count || 0} 次${p.best_accuracy ? ' · 最高 ' + Number(p.best_accuracy).toFixed(1) + '%' : ''}`, 
+                                p.player_name === currentName
+                            )).join('')}
+                        </div>
+                    `;
+                }
+            } else {
+                // 单曲排行
+                let html = '';
+                for (const song of SONGS) {
+                    const { data: songRecords, error } = await supabase
+                        .from('leaderboard')
+                        .select('*')
+                        .eq('song_id', song.id)
+                        .order('score', { ascending: false })
+                        .limit(5);
+                    
+                    if (error) continue;
+                    
+                    if (songRecords.length > 0) {
+                        html += `
+                            <div class="leaderboard-section">
+                                <h3>${song.cover} ${song.title} <span style="font-size:12px;color:var(--text-muted);">(${song.difficultyLabel})</span></h3>
+                                ${songRecords.map((r, i) => renderRankRow(
+                                    i + 1, 
+                                    r.player_name, 
+                                    Number(r.score).toLocaleString(), 
+                                    `${r.rank} · ${Number(r.accuracy).toFixed(1)}% · ${r.max_combo}combo`, 
+                                    r.player_name === currentName
+                                )).join('')}
+                            </div>
+                        `;
+                    }
+                }
+                
+                container.innerHTML = html || `
+                    <div class="empty-leaderboard">
+                        <div class="empty-icon">🎵</div>
+                        <p>还没有单曲记录</p>
+                        <p>完成歌曲后会在这里显示排行榜</p>
+                    </div>
+                `;
+            }
+            return;
+        } catch (err) {
+            console.error('Cloud leaderboard error:', err);
+            // 出错时降级到本地数据
+        }
+    }
+    
+    // 本地数据排行（降级方案）
     if (currentLeaderboardTab === 'total') {
-        // 总积分排行：汇总每个玩家的总积分
         const playerTotals = {};
         data.records.forEach(r => {
             const name = r.playerName || '匿名玩家';
@@ -729,8 +969,6 @@ function renderLeaderboard() {
             }
         });
         
-        // 添加当前玩家（即使没有记录）
-        const currentName = data.playerName || '匿名玩家';
         if (!playerTotals[currentName]) {
             playerTotals[currentName] = { name: currentName, totalPoints: data.totalPoints, plays: 0, bestRank: '-' };
         } else {
@@ -750,13 +988,12 @@ function renderLeaderboard() {
         } else {
             container.innerHTML = `
                 <div class="leaderboard-section">
-                    <h3>🏆 总积分排名</h3>
+                    <h3>🏆 总积分排名（本地）</h3>
                     ${sorted.map((p, i) => renderRankRow(i + 1, p.name, p.totalPoints.toLocaleString() + ' 分', `${p.plays} 次 · 最高 ${p.bestRank}`, p.name === currentName)).join('')}
                 </div>
             `;
         }
     } else {
-        // 单曲排行
         let html = '';
         SONGS.forEach(song => {
             const songRecords = data.records
@@ -768,7 +1005,7 @@ function renderLeaderboard() {
                 html += `
                     <div class="leaderboard-section">
                         <h3>${song.cover} ${song.title} <span style="font-size:12px;color:var(--text-muted);">(${song.difficultyLabel})</span></h3>
-                        ${songRecords.map((r, i) => renderRankRow(i + 1, r.playerName, r.score.toLocaleString(), `${r.rank} · ${r.accuracy.toFixed(1)}% · ${r.maxCombo}combo`, r.playerName === (data.playerName || '匿名玩家'))).join('')}
+                        ${songRecords.map((r, i) => renderRankRow(i + 1, r.playerName, r.score.toLocaleString(), `${r.rank} · ${r.accuracy.toFixed(1)}% · ${r.maxCombo}combo`, r.playerName === currentName)).join('')}
                     </div>
                 `;
             }
@@ -798,7 +1035,7 @@ function renderRankRow(rank, player, score, extra, isYou) {
 }
 
 function clearLeaderboard() {
-    if (confirm('确定要清空所有游戏记录吗？此操作不可恢复。')) {
+    if (confirm('确定要清空本地游戏记录吗？（云端记录不会被删除）')) {
         const data = loadGameData();
         data.records = [];
         data.totalPoints = 0;
@@ -932,6 +1169,15 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // 加载玩家信息
     updatePlayerDisplay();
+    
+    // 自动加载 Supabase 配置
+    const sbConfig = loadSupabaseConfig();
+    if (sbConfig && sbConfig.url && sbConfig.key) {
+        document.getElementById('supabaseUrl').value = sbConfig.url;
+        document.getElementById('supabaseKey').value = sbConfig.key;
+        // 延迟初始化，确保 SDK 已加载
+        setTimeout(() => initSupabase(sbConfig.url, sbConfig.key), 500);
+    }
     
     // 保存昵称
     const nameInput = document.getElementById('playerName');

@@ -882,6 +882,104 @@ body {
     font-size: 15px;
 }
 
+/* ========== Supabase 配置 ========== */
+.supabase-config {
+    max-width: 420px;
+    margin: 0 auto 20px;
+    background: var(--dark-lighter);
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+.config-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 14px;
+    transition: color 0.2s;
+}
+
+.config-header:hover {
+    color: var(--text);
+}
+
+.config-header #configArrow {
+    transition: transform 0.3s;
+    font-size: 12px;
+}
+
+.supabase-config.open .config-header #configArrow {
+    transform: rotate(180deg);
+}
+
+.config-body {
+    display: none;
+    padding: 0 20px 20px;
+}
+
+.supabase-config.open .config-body {
+    display: block;
+}
+
+.config-desc {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+.config-input {
+    margin-bottom: 12px;
+}
+
+.config-input label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.config-input input {
+    width: 100%;
+    background: var(--dark);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+    font-family: monospace;
+}
+
+.config-input input:focus {
+    border-color: var(--primary);
+}
+
+.config-status {
+    display: inline-block;
+    margin-left: 12px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-muted);
+}
+
+.config-status.connected {
+    background: rgba(16, 185, 129, 0.2);
+    color: var(--success);
+}
+
+.config-status.error {
+    background: rgba(239, 68, 68, 0.2);
+    color: var(--danger);
+}
+
 /* ========== 积分显示 ========== */
 .result-points {
     background: var(--dark-lighter);
