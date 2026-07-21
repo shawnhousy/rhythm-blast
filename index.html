@@ -28,6 +28,9 @@
                 <button class="menu-btn primary" onclick="showSongSelect()">
                     <span>🎵 开始游戏</span>
                 </button>
+                <button class="menu-btn" onclick="showUpload()">
+                    <span>📤 上传音乐</span>
+                </button>
                 <button class="menu-btn" onclick="showLeaderboard()">
                     <span>🏆 排行榜</span>
                 </button>
@@ -119,7 +122,58 @@
         <div class="song-container">
             <h2 class="info-title">选择歌曲</h2>
             <div class="song-list" id="songList"></div>
+            <div class="upload-entry">
+                <button class="menu-btn primary" onclick="showUpload()">
+                    <span>📤 上传我的音乐</span>
+                </button>
+            </div>
             <button class="menu-btn" onclick="showMenu()">返回主菜单</button>
+        </div>
+    </div>
+
+    <!-- 上传界面 -->
+    <div id="upload" class="screen">
+        <div class="upload-container">
+            <h2 class="info-title">📤 上传音乐</h2>
+            <p class="upload-desc">选择一首 MP3 音乐，系统将自动分析节奏并生成谱面</p>
+            
+            <div class="upload-area" id="uploadArea">
+                <input type="file" id="fileInput" accept="audio/*" hidden>
+                <div class="upload-icon">🎵</div>
+                <div class="upload-text">点击选择文件或拖拽到此处</div>
+                <div class="upload-hint">支持 MP3, WAV, OGG 等格式</div>
+            </div>
+            
+            <div class="upload-options" id="uploadOptions" style="display:none;">
+                <div class="file-info" id="fileInfo"></div>
+                
+                <div class="difficulty-select">
+                    <label>难度选择：</label>
+                    <div class="diff-buttons">
+                        <button class="diff-btn active" data-diff="easy">简单</button>
+                        <button class="diff-btn" data-diff="normal">普通</button>
+                        <button class="diff-btn" data-diff="hard">困难</button>
+                    </div>
+                </div>
+                
+                <button class="menu-btn primary" id="analyzeBtn" onclick="analyzeMusic()">
+                    <span>✨ 开始分析</span>
+                </button>
+            </div>
+            
+            <button class="menu-btn" onclick="showSongSelect()">返回选歌</button>
+        </div>
+    </div>
+
+    <!-- 分析进度界面 -->
+    <div id="analyzing" class="screen">
+        <div class="analyzing-container">
+            <div class="analyzing-icon">🎧</div>
+            <h2 class="analyzing-title" id="analyzingTitle">正在分析音乐...</h2>
+            <div class="progress-bar-container">
+                <div class="progress-bar-fill" id="progressBarFill"></div>
+            </div>
+            <p class="analyzing-status" id="analyzingStatus">解码音频中...</p>
         </div>
     </div>
 

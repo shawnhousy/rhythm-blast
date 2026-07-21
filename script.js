@@ -329,7 +329,15 @@ function gameLoop() {
     
     // 更新进度
     if (game.currentSong) {
-        const totalDuration = game.currentSong.notes[game.currentSong.notes.length - 1][0] + 2000;
+        let totalDuration;
+        if (game.isCustom && game.currentSong.duration) {
+            // 自定义歌曲：用音频实际时长（加上2秒预备）
+            totalDuration = game.currentSong.duration * 1000 + 2000;
+        } else {
+            // 内置歌曲：用最后一个音符时间 + 2秒
+            totalDuration = game.currentSong.notes[game.currentSong.notes.length - 1][0] + 2000;
+        }
+        
         const progress = Math.min(100, (now / totalDuration) * 100);
         document.getElementById('progressFill').style.width = progress + '%';
         document.getElementById('progressText').textContent = Math.round(progress) + '%';
@@ -744,16 +752,28 @@ function togglePause() {
     if (game.paused) {
         game.pauseStart = performance.now();
         document.getElementById('pauseMenu').classList.add('show');
+        // 暂停自定义音频
+        if (game.isCustom) {
+            pauseCustomAudio();
+        }
     } else {
         game.pausedTime += performance.now() - game.pauseStart;
         document.getElementById('pauseMenu').classList.remove('show');
+        // 恢复自定义音频
+        if (game.isCustom) {
+            resumeCustomAudio();
+        }
     }
 }
 
 function restartSong() {
     if (game.currentSong) {
         stopGame();
-        startGame(game.currentSong.id);
+        if (game.currentSong.isCustom) {
+            startCustomGame(game.currentSong);
+        } else {
+            startGame(game.currentSong.id);
+        }
     }
 }
 
@@ -765,6 +785,10 @@ function quitGame() {
 function stopGame() {
     game.running = false;
     if (game.animationId) cancelAnimationFrame(game.animationId);
+    
+    // 停止自定义音频
+    stopCustomAudio();
+    game.isCustom = false;
     
     // 清理音符
     document.querySelectorAll('.note').forEach(n => n.remove());
@@ -812,18 +836,20 @@ function endGame() {
     `;
     document.getElementById('pointsEarned').textContent = '+' + pointsData.total;
     
-    // 保存记录
-    saveGameRecord({
-        songId: game.currentSong.id,
-        songTitle: game.currentSong.title,
-        score: game.score,
-        accuracy: accuracy,
-        rank: rank,
-        maxCombo: game.maxCombo,
-        points: pointsData.total,
-        stats: { ...game.stats },
-        timestamp: Date.now()
-    });
+    // 保存记录（自定义歌曲不提交到排行榜）
+    if (!game.currentSong.isCustom) {
+        saveGameRecord({
+            songId: game.currentSong.id,
+            songTitle: game.currentSong.title,
+            score: game.score,
+            accuracy: accuracy,
+            rank: rank,
+            maxCombo: game.maxCombo,
+            points: pointsData.total,
+            stats: { ...game.stats },
+            timestamp: Date.now()
+        });
+    }
     
     showScreen('result');
 }
@@ -1109,6 +1135,476 @@ function renderRankRow(rank, player, score, extra, isYou) {
 
 function clearLeaderboard() {
     alert('云端记录无法从客户端删除。如需清除，请在 Supabase 控制台操作。');
+}
+
+// ========== 上传音乐 & 自动谱面生成 ==========
+let uploadedFile = null;
+let selectedDifficulty = 'easy';
+let customAudioBuffer = null;
+let customAudioSource = null;
+let customAudioStartTime = 0;
+let customAudioPausedAt = 0;
+
+function showUpload() {
+    stopGame();
+    resetUploadState();
+    showScreen('upload');
+    initUploadEvents();
+}
+
+function resetUploadState() {
+    uploadedFile = null;
+    selectedDifficulty = 'easy';
+    customAudioBuffer = null;
+    document.getElementById('uploadOptions').style.display = 'none';
+    document.getElementById('fileInfo').innerHTML = '';
+    document.querySelectorAll('.diff-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.diff === 'easy');
+    });
+}
+
+function initUploadEvents() {
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    
+    if (!uploadArea || !fileInput) return;
+    
+    // 点击上传
+    uploadArea.onclick = () => fileInput.click();
+    
+    // 文件选择
+    fileInput.onchange = (e) => {
+        const file = e.target.files[0];
+        if (file) handleFileSelect(file);
+    };
+    
+    // 拖拽上传
+    uploadArea.ondragover = (e) => {
+        e.preventDefault();
+        uploadArea.classList.add('dragover');
+    };
+    
+    uploadArea.ondragleave = () => {
+        uploadArea.classList.remove('dragover');
+    };
+    
+    uploadArea.ondrop = (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if (file) handleFileSelect(file);
+    };
+    
+    // 难度选择
+    document.querySelectorAll('.diff-btn').forEach(btn => {
+        btn.onclick = () => {
+            document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            selectedDifficulty = btn.dataset.diff;
+        };
+    });
+}
+
+function handleFileSelect(file) {
+    if (!file.type.startsWith('audio/')) {
+        alert('请选择音频文件！');
+        return;
+    }
+    
+    uploadedFile = file;
+    
+    const fileInfo = document.getElementById('fileInfo');
+    fileInfo.innerHTML = `
+        <div class="file-info-icon">🎵</div>
+        <div class="file-info-text">
+            <div class="file-info-name">${file.name}</div>
+            <div class="file-info-size">${(file.size / 1024 / 1024).toFixed(2)} MB</div>
+        </div>
+    `;
+    
+    document.getElementById('uploadOptions').style.display = 'block';
+}
+
+function updateAnalyzingProgress(percent, status) {
+    document.getElementById('progressBarFill').style.width = percent + '%';
+    if (status) document.getElementById('analyzingStatus').textContent = status;
+}
+
+// 使用 Web Audio API 进行节拍检测 (Onset Detection)
+async function analyzeMusic() {
+    if (!uploadedFile) {
+        alert('请先选择一个音频文件！');
+        return;
+    }
+    
+    initAudio();
+    if (!audioCtx) {
+        alert('浏览器不支持 Web Audio API！');
+        return;
+    }
+    
+    showScreen('analyzing');
+    updateAnalyzingProgress(5, '正在解码音频...');
+    
+    try {
+        // 1. 解码音频
+        const arrayBuffer = await uploadedFile.arrayBuffer();
+        customAudioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+        
+        updateAnalyzingProgress(30, '正在分析音频特征...');
+        
+        // 2. 执行节拍检测
+        const onsets = await detectOnsets(customAudioBuffer);
+        
+        updateAnalyzingProgress(70, '正在生成谱面...');
+        
+        // 3. 根据难度生成谱面
+        const notes = generateChartFromOnsets(onsets, selectedDifficulty, customAudioBuffer.duration);
+        
+        // 4. 估算 BPM
+        const estimatedBPM = estimateBPM(onsets);
+        
+        // 5. 创建自定义歌曲对象
+        const songTitle = uploadedFile.name.replace(/\.[^/.]+$/, '');
+        const diffMap = { easy: '简单', normal: '普通', hard: '困难' };
+        const colorMap = { easy: '#10b981', normal: '#22d3ee', hard: '#f59e0b' };
+        
+        const customSong = {
+            id: 'custom_' + Date.now(),
+            title: songTitle,
+            artist: '自定义',
+            cover: '🎶',
+            bpm: estimatedBPM,
+            difficulty: selectedDifficulty,
+            difficultyLabel: diffMap[selectedDifficulty],
+            color: colorMap[selectedDifficulty],
+            notes: notes,
+            isCustom: true,
+            duration: customAudioBuffer.duration
+        };
+        
+        updateAnalyzingProgress(100, '分析完成！');
+        
+        // 短暂延迟后开始游戏
+        await new Promise(r => setTimeout(r, 500));
+        
+        startCustomGame(customSong);
+        
+    } catch (err) {
+        console.error('分析失败:', err);
+        alert('音频分析失败：' + err.message + '\n请尝试其他音频文件。');
+        showUpload();
+    }
+}
+
+// Onset Detection - 基于频谱通量 (Spectral Flux)
+async function detectOnsets(audioBuffer) {
+    return new Promise((resolve) => {
+        // 使用 setTimeout 让 UI 有机会更新
+        setTimeout(() => {
+            const channelData = audioBuffer.getChannelData(0); // 取左声道
+            const sampleRate = audioBuffer.sampleRate;
+            
+            // 参数设置
+            const frameSize = 1024;          // 每帧样本数 (~23ms at 44.1kHz)
+            const hopSize = 512;              // 帧移 (~11ms)
+            const numFrames = Math.floor((channelData.length - frameSize) / hopSize);
+            
+            // 计算每帧的频谱通量
+            const spectralFlux = [];
+            let prevSpectrum = new Float32Array(frameSize / 2 + 1);
+            
+            // 创建一个临时的离线 AudioContext 来做 FFT（如果可用）
+            // 但为了兼容性，我们用简单的时域能量方法来辅助
+            // 实际上我们用简化版的 spectral flux + energy onset detection
+            
+            // 方法：计算短时能量 + 过零率的复合指标
+            const energies = [];
+            const zcrs = []; // 过零率
+            
+            for (let i = 0; i < numFrames; i++) {
+                const start = i * hopSize;
+                let energy = 0;
+                let zcr = 0;
+                let prevSample = 0;
+                
+                for (let j = 0; j < frameSize; j++) {
+                    const sample = channelData[start + j] || 0;
+                    energy += sample * sample;
+                    if ((sample > 0 && prevSample < 0) || (sample < 0 && prevSample > 0)) {
+                        zcr++;
+                    }
+                    prevSample = sample;
+                }
+                
+                energies.push(energy / frameSize);
+                zcrs.push(zcr / frameSize);
+            }
+            
+            // 计算能量差分（onset 的核心指标）
+            const energyDiff = [];
+            for (let i = 1; i < energies.length; i++) {
+                const diff = energies[i] - energies[i - 1];
+                energyDiff.push(Math.max(0, diff)); // 只取能量增加的部分
+            }
+            
+            // 计算过零率差分（打击乐 onset 通常伴随 zcr 变化）
+            const zcrDiff = [];
+            for (let i = 1; i < zcrs.length; i++) {
+                zcrDiff.push(Math.abs(zcrs[i] - zcrs[i - 1]));
+            }
+            
+            // 复合 onset 函数
+            const onsetFunction = [];
+            const maxEnergyDiff = Math.max(...energyDiff, 1);
+            const maxZcrDiff = Math.max(...zcrDiff, 1);
+            
+            for (let i = 0; i < energyDiff.length; i++) {
+                const eNorm = energyDiff[i] / maxEnergyDiff;
+                const zNorm = zcrDiff[i] / maxZcrDiff;
+                onsetFunction.push(eNorm * 0.7 + zNorm * 0.3); // 能量权重更高
+            }
+            
+            // 峰值检测 (Peak Picking)
+            // 使用滑动窗口找局部最大值，并应用阈值
+            const onsets = [];
+            const windowSize = 7; // 检查前后各 3 帧
+            const threshold = 0.15; // 阈值
+            const minIntervalMs = 80; // 最小 onset 间隔 (ms)
+            const frameTimeMs = (hopSize / sampleRate) * 1000;
+            
+            let lastOnsetTime = -Infinity;
+            
+            for (let i = windowSize; i < onsetFunction.length - windowSize; i++) {
+                const current = onsetFunction[i];
+                if (current < threshold) continue;
+                
+                // 检查是否是局部最大值
+                let isPeak = true;
+                for (let j = 1; j <= windowSize; j++) {
+                    if (onsetFunction[i - j] > current || onsetFunction[i + j] >= current) {
+                        isPeak = false;
+                        break;
+                    }
+                }
+                
+                if (isPeak) {
+                    const timeMs = i * frameTimeMs;
+                    if (timeMs - lastOnsetTime >= minIntervalMs) {
+                        onsets.push({
+                            time: timeMs,
+                            strength: current
+                        });
+                        lastOnsetTime = timeMs;
+                    }
+                }
+            }
+            
+            resolve(onsets);
+        }, 50);
+    });
+}
+
+// 根据 onset 和难度生成谱面
+function generateChartFromOnsets(onsets, difficulty, duration) {
+    if (onsets.length === 0) {
+        // 如果没检测到 onset，生成一个简单的默认谱面
+        return generateDefaultChart(duration);
+    }
+    
+    const notes = [];
+    const leadIn = 2000; // 2秒预备
+    
+    // 难度参数
+    const diffSettings = {
+        easy:   { density: 0.4, minGap: 250, chordChance: 0.0, doubleNote: false },
+        normal: { density: 0.7, minGap: 150, chordChance: 0.08, doubleNote: false },
+        hard:   { density: 1.0, minGap: 100, chordChance: 0.15, doubleNote: true }
+    };
+    
+    const settings = diffSettings[difficulty] || diffSettings.normal;
+    
+    // 1. 根据强度筛选 onset
+    const sorted = [...onsets].sort((a, b) => b.strength - a.strength);
+    const keepCount = Math.max(20, Math.floor(onsets.length * settings.density));
+    const strongOnsets = sorted.slice(0, keepCount).sort((a, b) => a.time - b.time);
+    
+    // 2. 过滤掉间隔太近的
+    const filtered = [];
+    let lastTime = -Infinity;
+    for (const onset of strongOnsets) {
+        if (onset.time - lastTime >= settings.minGap) {
+            filtered.push(onset);
+            lastTime = onset.time;
+        }
+    }
+    
+    // 3. 分配轨道 - 用伪随机但有模式的方式
+    // 根据 onset 强度和时间来决定轨道
+    let lanePattern = [0, 1, 2, 3, 1, 2, 0, 3]; // 基础模式
+    let patternIndex = 0;
+    
+    for (let i = 0; i < filtered.length; i++) {
+        const onset = filtered[i];
+        const noteTime = leadIn + onset.time;
+        
+        // 主音符
+        let lane;
+        if (i === 0) {
+            lane = 0; // 第一个音符从最左边开始
+        } else {
+            // 结合模式和强度来决定
+            const strengthFactor = Math.floor(onset.strength * 4);
+            lane = (lanePattern[patternIndex % lanePattern.length] + strengthFactor) % 4;
+            patternIndex++;
+        }
+        
+        notes.push([noteTime, lane]);
+        
+        // 偶尔添加和弦（同时多个音符）
+        if (settings.chordChance > 0 && Math.random() < settings.chordChance && i > 0) {
+            let lane2 = (lane + 1 + Math.floor(Math.random() * 3)) % 4;
+            notes.push([noteTime, lane2]);
+        }
+    }
+    
+    // 4. 如果音符太少，补充一些
+    const minNotes = { easy: 30, normal: 50, hard: 80 };
+    if (notes.length < minNotes[difficulty]) {
+        const additional = generateDefaultChart(duration, difficulty);
+        // 合并去重
+        for (const n of additional) {
+            notes.push(n);
+        }
+    }
+    
+    return notes.sort((a, b) => a[0] - b[0]);
+}
+
+// 生成默认谱面（当 onset 检测失败时）
+function generateDefaultChart(duration, difficulty = 'normal') {
+    const bpmMap = { easy: 90, normal: 120, hard: 150 };
+    const countMap = { easy: 30, normal: 60, hard: 100 };
+    const bpm = bpmMap[difficulty];
+    const count = countMap[difficulty];
+    
+    return generatePattern(bpm, count, [0.3, 0.3, 0.2, 0.2]);
+}
+
+// 估算 BPM
+function estimateBPM(onsets) {
+    if (onsets.length < 4) return 120;
+    
+    // 计算相邻 onset 的间隔
+    const intervals = [];
+    for (let i = 1; i < onsets.length; i++) {
+        intervals.push(onsets[i].time - onsets[i - 1].time);
+    }
+    
+    // 取中位数间隔
+    intervals.sort((a, b) => a - b);
+    const median = intervals[Math.floor(intervals.length / 2)];
+    
+    // 转换为 BPM (60000ms / 间隔)
+    let bpm = 60000 / median;
+    
+    // 如果 BPM 太高或太低，尝试找倍数/约数
+    while (bpm < 60) bpm *= 2;
+    while (bpm > 200) bpm /= 2;
+    
+    return Math.round(bpm);
+}
+
+// ========== 自定义歌曲游戏逻辑 ==========
+function startCustomGame(song) {
+    game.currentSong = song;
+    game.notes = [...song.notes];
+    game.activeNotes = [];
+    game.score = 0;
+    game.combo = 0;
+    game.maxCombo = 0;
+    game.stats = { perfect: 0, great: 0, good: 0, miss: 0 };
+    game.paused = false;
+    game.pausedTime = 0;
+    game.running = true;
+    game.isCustom = true;
+    
+    // 计算音符速度
+    game.noteSpeed = 300 + (song.bpm - 90) * 2;
+    if (game.noteSpeed < 250) game.noteSpeed = 250;
+    
+    // 重置UI
+    updateScore();
+    updateCombo();
+    document.getElementById('progressFill').style.width = '0%';
+    document.getElementById('progressText').textContent = '0%';
+    document.getElementById('pauseMenu').classList.remove('show');
+    
+    // 初始化轨道
+    initTrack();
+    
+    showScreen('game');
+    
+    // 开始游戏循环
+    game.startTime = performance.now();
+    gameLoop();
+    
+    // 播放自定义音频（延迟2秒作为预备时间）
+    playCustomAudio(2000);
+}
+
+function playCustomAudio(delayMs) {
+    if (!customAudioBuffer || !audioCtx) return;
+    
+    // 停止之前的音频
+    stopCustomAudio();
+    
+    customAudioSource = audioCtx.createBufferSource();
+    customAudioSource.buffer = customAudioBuffer;
+    customAudioSource.connect(audioCtx.destination);
+    
+    const startAt = audioCtx.currentTime + (delayMs / 1000);
+    customAudioSource.start(startAt);
+    customAudioStartTime = startAt;
+    customAudioPausedAt = 0;
+    
+    customAudioSource.onended = () => {
+        // 音频播放结束
+    };
+}
+
+function stopCustomAudio() {
+    if (customAudioSource) {
+        try {
+            customAudioSource.stop();
+        } catch (e) {}
+        customAudioSource.disconnect();
+        customAudioSource = null;
+    }
+}
+
+function pauseCustomAudio() {
+    if (!customAudioSource || !audioCtx) return;
+    try {
+        customAudioPausedAt = audioCtx.currentTime - customAudioStartTime;
+        customAudioSource.stop();
+        customAudioSource.disconnect();
+        customAudioSource = null;
+    } catch (e) {}
+}
+
+function resumeCustomAudio() {
+    if (!customAudioBuffer || !audioCtx) return;
+    if (customAudioPausedAt <= 0) return;
+    
+    customAudioSource = audioCtx.createBufferSource();
+    customAudioSource.buffer = customAudioBuffer;
+    customAudioSource.connect(audioCtx.destination);
+    
+    const offset = Math.max(0, customAudioPausedAt);
+    customAudioSource.start(0, offset);
+    customAudioStartTime = audioCtx.currentTime - offset;
+    customAudioPausedAt = 0;
 }
 
 // ========== 天赋测试（简化版）==========

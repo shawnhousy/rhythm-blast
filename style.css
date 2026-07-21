@@ -1220,6 +1220,197 @@ body {
     justify-content: center;
 }
 
+/* ========== 选歌界面上传入口 ========== */
+.upload-entry {
+    text-align: center;
+    margin-bottom: 20px;
+    padding: 20px;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(236, 72, 153, 0.1));
+    border: 2px dashed rgba(99, 102, 241, 0.3);
+    border-radius: 16px;
+}
+
+.upload-entry .menu-btn {
+    width: 100%;
+}
+
+/* ========== 上传界面 ========== */
+.upload-container {
+    max-width: 600px;
+    width: 90%;
+    padding: 40px;
+    background: rgba(21, 21, 48, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 24px;
+    backdrop-filter: blur(20px);
+    text-align: center;
+}
+
+.upload-desc {
+    color: var(--text-muted);
+    margin-bottom: 30px;
+    font-size: 15px;
+}
+
+.upload-area {
+    padding: 50px 30px;
+    background: var(--dark-lighter);
+    border: 3px dashed rgba(99, 102, 241, 0.4);
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-bottom: 24px;
+}
+
+.upload-area:hover,
+.upload-area.dragover {
+    border-color: var(--primary);
+    background: rgba(99, 102, 241, 0.1);
+    transform: translateY(-2px);
+}
+
+.upload-icon {
+    font-size: 64px;
+    margin-bottom: 16px;
+}
+
+.upload-text {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.upload-hint {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.upload-options {
+    margin-bottom: 24px;
+}
+
+.file-info {
+    padding: 16px 20px;
+    background: var(--dark);
+    border-radius: 12px;
+    margin-bottom: 20px;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.file-info-icon {
+    font-size: 36px;
+}
+
+.file-info-text {
+    flex: 1;
+    overflow: hidden;
+}
+
+.file-info-name {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-info-size {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.difficulty-select {
+    margin-bottom: 20px;
+}
+
+.difficulty-select label {
+    display: block;
+    margin-bottom: 12px;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.diff-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+.diff-btn {
+    padding: 10px 24px;
+    background: var(--dark);
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-muted);
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.diff-btn:hover {
+    border-color: var(--primary);
+    color: var(--text);
+}
+
+.diff-btn.active {
+    background: var(--gradient);
+    color: white;
+    border-color: transparent;
+}
+
+/* ========== 分析进度界面 ========== */
+.analyzing-container {
+    text-align: center;
+    padding: 40px;
+}
+
+.analyzing-icon {
+    font-size: 80px;
+    margin-bottom: 24px;
+    animation: analyzingPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes analyzingPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+.analyzing-title {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 30px;
+    background: var(--gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.progress-bar-container {
+    width: 100%;
+    max-width: 400px;
+    height: 12px;
+    background: var(--dark-lighter);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 0 auto 16px;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--gradient);
+    border-radius: 10px;
+    transition: width 0.3s ease;
+}
+
+.analyzing-status {
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
 /* ========== 响应式 ========== */
 @media (max-width: 768px) {
     .game-title { font-size: 48px; }
