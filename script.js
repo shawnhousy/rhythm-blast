@@ -321,11 +321,19 @@ function gameLoop() {
     const trackHeight = trackContainer.clientHeight;
     const judgeY = trackHeight - 100; // 判定线位置
     
-    // 生成新音符
+    // 生成新音符（批量处理同一时间点，识别双押）
     const fallTime = judgeY / game.noteSpeed * 1000;
     while (game.notes.length > 0 && game.notes[0][0] - fallTime <= now) {
-        const noteData = game.notes.shift();
-        spawnNote(noteData[0], noteData[1], now);
+        // 收集同一时间点（或非常接近）的所有音符
+        const batch = [];
+        const batchTime = game.notes[0][0];
+        while (game.notes.length > 0 && Math.abs(game.notes[0][0] - batchTime) < 30) {
+            batch.push(game.notes.shift());
+        }
+        const isDouble = batch.length >= 2;
+        for (const noteData of batch) {
+            spawnNote(noteData[0], noteData[1], now, isDouble);
+        }
     }
     
     // 更新音符位置
@@ -365,13 +373,13 @@ function gameLoop() {
     }
 }
 
-function spawnNote(targetTime, lane, currentNow) {
+function spawnNote(targetTime, lane, currentNow, isDouble) {
     const now = currentNow !== undefined ? currentNow : getGameNow();
     const laneEl = document.querySelector(`.track-lane[data-lane="${lane}"]`);
     if (!laneEl) return;
     
     const noteEl = document.createElement('div');
-    noteEl.className = 'note';
+    noteEl.className = isDouble ? 'note double-note' : 'note';
     noteEl.style.top = '-30px';
     laneEl.appendChild(noteEl);
     
@@ -380,7 +388,8 @@ function spawnNote(targetTime, lane, currentNow) {
         lane: lane,
         targetTime: targetTime,
         spawnTime: now,
-        hit: false
+        hit: false,
+        isDouble: isDouble || false
     });
 }
 
