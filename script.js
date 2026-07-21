@@ -128,6 +128,46 @@ const SONGS = [
         difficultyLabel: "专家",
         color: "#ef4444",
         notes: generatePattern(170, 100, [0.2, 0.3, 0.3, 0.2])
+    },
+    // ===== 云曲库歌曲（点击后动态分析节奏）=====
+    {
+        id: 101,
+        title: "海阔天空",
+        artist: "Beyond",
+        cover: "🌊",
+        bpm: 0,
+        difficulty: "cloud",
+        difficultyLabel: "云曲库",
+        color: "#8b5cf6",
+        notes: [],
+        isCloud: true,
+        audioUrl: "https://pub-ec7f16177eaf4223b7553abeb18c80d6.r2.dev/Beyond%20-%20%E6%B5%B7%E9%98%94%E5%A4%A9%E7%A9%BA.mp3"
+    },
+    {
+        id: 102,
+        title: "雪 Distance",
+        artist: "Capper 罗言",
+        cover: "❄️",
+        bpm: 0,
+        difficulty: "cloud",
+        difficultyLabel: "云曲库",
+        color: "#8b5cf6",
+        notes: [],
+        isCloud: true,
+        audioUrl: "https://pub-ec7f16177eaf4223b7553abeb18c80d6.r2.dev/Capper%20%E7%BD%97%E8%A8%80%20-%20%E9%9B%AA%20Distance.mp3"
+    },
+    {
+        id: 103,
+        title: "Dream It Possible",
+        artist: "Delacey",
+        cover: "✨",
+        bpm: 0,
+        difficulty: "cloud",
+        difficultyLabel: "云曲库",
+        color: "#8b5cf6",
+        notes: [],
+        isCloud: true,
+        audioUrl: "https://pub-ec7f16177eaf4223b7553abeb18c80d6.r2.dev/Delacey%20-%20Dream%20It%20Possible.mp3"
     }
 ];
 
@@ -224,7 +264,31 @@ function showSongSelect() {
 // ========== 歌曲列表 ==========
 function renderSongList() {
     const list = document.getElementById('songList');
-    list.innerHTML = SONGS.map(song => `
+    
+    // 分类：内置歌曲 + 云曲库
+    const builtIn = SONGS.filter(s => !s.isCloud);
+    const cloud = SONGS.filter(s => s.isCloud);
+    
+    let html = '';
+    
+    if (builtIn.length > 0) {
+        html += '<div class="song-section"><h3 class="song-section-title">🎮 内置歌曲</h3>';
+        html += builtIn.map(song => renderSongCard(song)).join('');
+        html += '</div>';
+    }
+    
+    if (cloud.length > 0) {
+        html += '<div class="song-section"><h3 class="song-section-title">☁️ 云曲库（点击自动分析）</h3>';
+        html += cloud.map(song => renderSongCard(song)).join('');
+        html += '</div>';
+    }
+    
+    list.innerHTML = html;
+}
+
+function renderSongCard(song) {
+    const bpmDisplay = song.isCloud ? '动态分析' : `BPM ${song.bpm}`;
+    return `
         <div class="song-card" onclick="startGame(${song.id})">
             <div class="song-cover" style="background: linear-gradient(135deg, ${song.color}, ${song.color}88);">
                 ${song.cover}
@@ -235,16 +299,22 @@ function renderSongList() {
             </div>
             <div class="song-difficulty">
                 <span class="difficulty-badge difficulty-${song.difficulty}">${song.difficultyLabel}</span>
-                <span class="song-bpm">BPM ${song.bpm}</span>
+                <span class="song-bpm">${bpmDisplay}</span>
             </div>
         </div>
-    `).join('');
+    `;
 }
 
 // ========== 游戏初始化 ==========
 function startGame(songId) {
     const song = SONGS.find(s => s.id === songId);
     if (!song) return;
+    
+    // 云曲库歌曲：先下载+分析再开始
+    if (song.isCloud) {
+        startCloudSong(song);
+        return;
+    }
     
     game.currentSong = song;
     game.notes = [...song.notes];
@@ -278,6 +348,71 @@ function startGame(songId) {
     
     // 4拍倒计时
     startCountdown(song.bpm);
+}
+
+// 云曲库歌曲：从 URL 下载音频并动态分析
+async function startCloudSong(song) {
+    initAudio();
+    if (!audioCtx) {
+        alert('浏览器不支持 Web Audio API！');
+        return;
+    }
+    
+    // 显示分析界面
+    showScreen('analyzing');
+    updateAnalyzingProgress(5, '正在下载音频...');
+    
+    try {
+        // 1. 下载音频
+        const resp = await fetch(song.audioUrl);
+        if (!resp.ok) throw new Error('下载失败：' + resp.status);
+        const arrayBuffer = await resp.arrayBuffer();
+        
+        updateAnalyzingProgress(25, '正在解码音频...');
+        
+        // 2. 解码
+        customAudioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+        
+        updateAnalyzingProgress(50, '正在分析音频特征...');
+        
+        // 3. 节拍检测
+        const onsets = await detectOnsets(customAudioBuffer);
+        
+        updateAnalyzingProgress(80, '正在生成谱面...');
+        
+        // 4. 默认普通难度生成谱面
+        const defaultDiff = 'normal';
+        const notes = generateChartFromOnsets(onsets, defaultDiff, customAudioBuffer.duration);
+        const estimatedBPM = estimateBPM(onsets);
+        
+        // 5. 创建歌曲对象（和自定义歌曲一样的逻辑）
+        const diffMap = { easy: '简单', normal: '普通', hard: '困难' };
+        const colorMap = { easy: '#10b981', normal: '#22d3ee', hard: '#f59e0b' };
+        
+        const cloudSong = {
+            id: song.id,
+            title: song.title,
+            artist: song.artist,
+            cover: song.cover,
+            bpm: estimatedBPM,
+            difficulty: defaultDiff,
+            difficultyLabel: diffMap[defaultDiff],
+            color: colorMap[defaultDiff],
+            notes: notes,
+            isCustom: true,
+            duration: customAudioBuffer.duration
+        };
+        
+        updateAnalyzingProgress(100, '分析完成！');
+        await new Promise(r => setTimeout(r, 500));
+        
+        startCustomGame(cloudSong);
+        
+    } catch (err) {
+        console.error('云曲库分析失败:', err);
+        alert('加载失败：' + err.message + '\n请检查网络连接后重试。');
+        showSongSelect();
+    }
 }
 
 function initTrack() {
