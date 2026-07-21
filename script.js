@@ -1173,6 +1173,8 @@ function resetUploadState() {
     uploadedFile = null;
     selectedDifficulty = 'easy';
     customAudioBuffer = null;
+    customAudioStartTime = 0;
+    customAudioPausedAt = 0;
     document.getElementById('uploadOptions').style.display = 'none';
     document.getElementById('fileInfo').innerHTML = '';
     document.querySelectorAll('.diff-btn').forEach(btn => {
@@ -1589,6 +1591,11 @@ function estimateBPM(onsets) {
 
 // ========== 自定义歌曲游戏逻辑 ==========
 function startCustomGame(song) {
+    // 先清零音频状态，避免读取到上一首歌的残留数据
+    customAudioStartTime = 0;
+    customAudioPausedAt = 0;
+    stopCustomAudio();
+    
     game.currentSong = song;
     game.notes = [...song.notes];
     game.activeNotes = [];
@@ -1598,6 +1605,7 @@ function startCustomGame(song) {
     game.stats = { perfect: 0, great: 0, good: 0, miss: 0 };
     game.paused = false;
     game.pausedTime = 0;
+    game.pausedGameTime = 0;
     game.running = true;
     game.isCustom = true;
     
@@ -1617,18 +1625,16 @@ function startCustomGame(song) {
     
     showScreen('game');
     
-    // 开始游戏循环
+    // 先设置好音频开始时间，再启动游戏循环
+    // 这样 gameLoop 第一帧就能读到正确的 customAudioStartTime
+    setupCustomAudioStart(2000);
     game.startTime = performance.now();
     gameLoop();
-    
-    // 播放自定义音频（延迟2秒作为预备时间）
-    playCustomAudio(2000);
 }
 
-function playCustomAudio(delayMs) {
+function setupCustomAudioStart(delayMs) {
     if (!customAudioBuffer || !audioCtx) return;
     
-    // 停止之前的音频
     stopCustomAudio();
     
     customAudioSource = audioCtx.createBufferSource();
@@ -1639,10 +1645,11 @@ function playCustomAudio(delayMs) {
     customAudioSource.start(startAt);
     customAudioStartTime = startAt;
     customAudioPausedAt = 0;
-    
-    customAudioSource.onended = () => {
-        // 音频播放结束
-    };
+}
+
+// 保留旧的 playCustomAudio 作为兼容别名
+function playCustomAudio(delayMs) {
+    setupCustomAudioStart(delayMs);
 }
 
 function stopCustomAudio() {
@@ -1653,6 +1660,8 @@ function stopCustomAudio() {
         customAudioSource.disconnect();
         customAudioSource = null;
     }
+    customAudioStartTime = 0;
+    customAudioPausedAt = 0;
 }
 
 function pauseCustomAudio() {
