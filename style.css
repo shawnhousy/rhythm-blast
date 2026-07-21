@@ -565,6 +565,10 @@ body {
     position: relative;
     border-left: 1px solid rgba(255, 255, 255, 0.05);
     border-right: 1px solid rgba(255, 255, 255, 0.05);
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
 }
 
 .track-lane:nth-child(1) { background: linear-gradient(180deg, transparent 0%, rgba(99, 102, 241, 0.05) 100%); }
