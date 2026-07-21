@@ -1214,11 +1214,59 @@ body {
 
 /* ========== 响应式 ========== */
 @media (max-width: 768px) {
-    .game-title { font-size: 56px; }
-    .game-track { width: 100%; max-width: 400px; }
+    .game-title { font-size: 48px; }
+    .game-track { width: 100%; max-width: 500px; }
     .hud-value { font-size: 20px; }
     .combo-num { font-size: 36px; }
     .progress-track { width: 80px; }
     .talent-mini { grid-template-columns: 1fr; }
-    .result-rank { font-size: 100px; }
+    .result-rank { font-size: 80px; }
+    
+    /* 移动端按键放大 */
+    .key-zone { height: 140px; }
+    .key {
+        border-width: 3px;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+    .key-label { font-size: 32px; }
+    
+    /* 移动端判定文字 */
+    .judge-display { font-size: 42px; }
+    #combo { font-size: 56px; }
+    
+    /* 移动端音符更大 */
+    .note { height: 28px; }
+    
+    /* 移动端隐藏一些非关键元素 */
+    .hud-label { font-size: 11px; }
+    
+    /* 菜单按钮更大 */
+    .menu-btn {
+        padding: 14px 24px;
+        font-size: 16px;
+    }
+    
+    /* 排行榜条目 */
+    .leaderboard-item {
+        padding: 10px 12px;
+        font-size: 14px;
+    }
+    
+    .rank-num {
+        width: 32px;
+        height: 32px;
+        font-size: 14px;
+    }
+}
+
+/* 小屏手机 */
+@media (max-width: 400px) {
+    .game-title { font-size: 36px; }
+    .key-zone { height: 120px; }
+    .key-label { font-size: 26px; }
+    .result-rank { font-size: 64px; }
+    .judge-display { font-size: 36px; }
+    #combo { font-size: 48px; }
 }

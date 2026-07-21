@@ -418,6 +418,65 @@ function releaseKey(lane) {
     if (keyEl) keyEl.classList.remove('active');
 }
 
+// ========== 触控支持 ==========
+function initTouchControls() {
+    const keyEls = document.querySelectorAll('.key');
+    keyEls.forEach((keyEl, lane) => {
+        // 触摸开始
+        keyEl.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            initAudio();
+            if (game.running && !game.paused) {
+                pressKey(lane);
+            }
+        }, { passive: false });
+
+        // 触摸结束
+        keyEl.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            releaseKey(lane);
+        }, { passive: false });
+
+        // 触摸取消
+        keyEl.addEventListener('touchcancel', (e) => {
+            e.preventDefault();
+            releaseKey(lane);
+        }, { passive: false });
+
+        // 鼠标点击（桌面端也能用）
+        keyEl.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            initAudio();
+            if (game.running && !game.paused) {
+                pressKey(lane);
+            }
+        });
+        keyEl.addEventListener('mouseup', (e) => {
+            e.preventDefault();
+            releaseKey(lane);
+        });
+        keyEl.addEventListener('mouseleave', () => {
+            releaseKey(lane);
+        });
+    });
+
+    // 防止页面滚动/缩放
+    document.addEventListener('touchmove', (e) => {
+        if (game.running) e.preventDefault();
+    }, { passive: false });
+
+    // 双指缩放
+    document.addEventListener('gesturestart', (e) => {
+        if (game.running) e.preventDefault();
+    });
+}
+
+// 检测是否为移动设备
+function isMobile() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+        || window.innerWidth <= 768;
+}
+
 // ========== 判定 ==========
 function hitNote(note, diff) {
     note.hit = true;
@@ -1104,6 +1163,12 @@ document.addEventListener('DOMContentLoaded', () => {
 // ========== 初始化 ==========
 document.addEventListener('DOMContentLoaded', () => {
     initBgParticles();
+    initTouchControls();
+    
+    // 移动端特殊处理
+    if (isMobile()) {
+        document.body.classList.add('mobile');
+    }
     
     // 加载玩家信息
     updatePlayerDisplay();
