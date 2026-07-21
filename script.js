@@ -179,14 +179,28 @@ const game = {
     paused: false,
     pausedTime: 0,
     pauseStart: 0,
+    pausedGameTime: 0,
     score: 0,
     combo: 0,
     maxCombo: 0,
     stats: { perfect: 0, great: 0, good: 0, miss: 0 },
     running: false,
     animationId: null,
-    noteSpeed: 400 // px/s
+    noteSpeed: 400, // px/s
+    isCustom: false
 };
+
+// 获取当前游戏时间（自定义歌曲用音频时钟，确保对齐）
+function getGameNow() {
+    if (game.paused && game.pausedGameTime !== undefined) {
+        return game.pausedGameTime;
+    }
+    if (game.isCustom && audioCtx && customAudioStartTime > 0) {
+        const now = (audioCtx.currentTime - customAudioStartTime) * 1000 + 2000;
+        return Math.max(0, now);
+    }
+    return performance.now() - game.startTime - game.pausedTime;
+}
 
 // ========== 屏幕切换 ==========
 function showScreen(id) {
@@ -300,7 +314,9 @@ function gameLoop() {
     
     if (game.paused) return;
     
-    const now = performance.now() - game.startTime - game.pausedTime;
+    // 自定义歌曲使用音频时钟（确保音符和音乐对齐），内置歌曲用 performance.now()
+    const now = getGameNow();
+    
     const trackContainer = document.getElementById('trackContainer');
     const trackHeight = trackContainer.clientHeight;
     const judgeY = trackHeight - 100; // 判定线位置
@@ -309,7 +325,7 @@ function gameLoop() {
     const fallTime = judgeY / game.noteSpeed * 1000;
     while (game.notes.length > 0 && game.notes[0][0] - fallTime <= now) {
         const noteData = game.notes.shift();
-        spawnNote(noteData[0], noteData[1]);
+        spawnNote(noteData[0], noteData[1], now);
     }
     
     // 更新音符位置
@@ -349,8 +365,8 @@ function gameLoop() {
     }
 }
 
-function spawnNote(targetTime, lane) {
-    const now = performance.now() - game.startTime - game.pausedTime;
+function spawnNote(targetTime, lane, currentNow) {
+    const now = currentNow !== undefined ? currentNow : getGameNow();
     const laneEl = document.querySelector(`.track-lane[data-lane="${lane}"]`);
     if (!laneEl) return;
     
@@ -402,7 +418,7 @@ function pressKey(lane) {
     if (keyEl) keyEl.classList.add('active');
     
     // 寻找最接近判定线的音符
-    const now = performance.now() - game.startTime - game.pausedTime;
+    const now = getGameNow();
     let closestNote = null;
     let closestDiff = Infinity;
     
@@ -751,6 +767,7 @@ function togglePause() {
     
     if (game.paused) {
         game.pauseStart = performance.now();
+        game.pausedGameTime = getGameNow();
         document.getElementById('pauseMenu').classList.add('show');
         // 暂停自定义音频
         if (game.isCustom) {
@@ -1297,30 +1314,22 @@ async function analyzeMusic() {
     }
 }
 
-// Onset Detection - 基于频谱通量 (Spectral Flux)
+// Onset Detection - 基于短时能量 + 过零率的复合检测
 async function detectOnsets(audioBuffer) {
     return new Promise((resolve) => {
-        // 使用 setTimeout 让 UI 有机会更新
         setTimeout(() => {
-            const channelData = audioBuffer.getChannelData(0); // 取左声道
+            const channelData = audioBuffer.getChannelData(0);
             const sampleRate = audioBuffer.sampleRate;
+            const durationMs = audioBuffer.duration * 1000;
             
-            // 参数设置
-            const frameSize = 1024;          // 每帧样本数 (~23ms at 44.1kHz)
-            const hopSize = 512;              // 帧移 (~11ms)
+            // 参数：更小的帧移 = 更高的时间分辨率
+            const frameSize = 512;           // ~11ms at 44.1kHz
+            const hopSize = 256;              // ~5.8ms at 44.1kHz
             const numFrames = Math.floor((channelData.length - frameSize) / hopSize);
             
-            // 计算每帧的频谱通量
-            const spectralFlux = [];
-            let prevSpectrum = new Float32Array(frameSize / 2 + 1);
-            
-            // 创建一个临时的离线 AudioContext 来做 FFT（如果可用）
-            // 但为了兼容性，我们用简单的时域能量方法来辅助
-            // 实际上我们用简化版的 spectral flux + energy onset detection
-            
-            // 方法：计算短时能量 + 过零率的复合指标
-            const energies = [];
-            const zcrs = []; // 过零率
+            // 1. 计算每帧的能量和过零率
+            const energies = new Float32Array(numFrames);
+            const zcrs = new Float32Array(numFrames);
             
             for (let i = 0; i < numFrames; i++) {
                 const start = i * hopSize;
@@ -1337,52 +1346,66 @@ async function detectOnsets(audioBuffer) {
                     prevSample = sample;
                 }
                 
-                energies.push(energy / frameSize);
-                zcrs.push(zcr / frameSize);
+                energies[i] = energy / frameSize;
+                zcrs[i] = zcr / frameSize;
             }
             
-            // 计算能量差分（onset 的核心指标）
-            const energyDiff = [];
-            for (let i = 1; i < energies.length; i++) {
-                const diff = energies[i] - energies[i - 1];
-                energyDiff.push(Math.max(0, diff)); // 只取能量增加的部分
+            // 2. 计算差分（只取能量增加）
+            const energyDiff = new Float32Array(numFrames - 1);
+            const zcrDiff = new Float32Array(numFrames - 1);
+            let maxEnergyDiff = 0;
+            let maxZcrDiff = 0;
+            
+            for (let i = 1; i < numFrames; i++) {
+                const ed = Math.max(0, energies[i] - energies[i - 1]);
+                const zd = Math.abs(zcrs[i] - zcrs[i - 1]);
+                energyDiff[i - 1] = ed;
+                zcrDiff[i - 1] = zd;
+                if (ed > maxEnergyDiff) maxEnergyDiff = ed;
+                if (zd > maxZcrDiff) maxZcrDiff = zd;
             }
             
-            // 计算过零率差分（打击乐 onset 通常伴随 zcr 变化）
-            const zcrDiff = [];
-            for (let i = 1; i < zcrs.length; i++) {
-                zcrDiff.push(Math.abs(zcrs[i] - zcrs[i - 1]));
-            }
+            if (maxEnergyDiff === 0) maxEnergyDiff = 1;
+            if (maxZcrDiff === 0) maxZcrDiff = 1;
             
-            // 复合 onset 函数
-            const onsetFunction = [];
-            const maxEnergyDiff = Math.max(...energyDiff, 1);
-            const maxZcrDiff = Math.max(...zcrDiff, 1);
-            
+            // 3. 复合 onset 函数
+            const onsetFunction = new Float32Array(energyDiff.length);
             for (let i = 0; i < energyDiff.length; i++) {
                 const eNorm = energyDiff[i] / maxEnergyDiff;
                 const zNorm = zcrDiff[i] / maxZcrDiff;
-                onsetFunction.push(eNorm * 0.7 + zNorm * 0.3); // 能量权重更高
+                onsetFunction[i] = eNorm * 0.6 + zNorm * 0.4;
             }
             
-            // 峰值检测 (Peak Picking)
-            // 使用滑动窗口找局部最大值，并应用阈值
+            // 4. 计算动态阈值（用局部平均值）
+            // 阈值越低，检测到的 onset 越多
+            const thresholdWindow = 80; // ~0.5秒窗口
+            const baseThreshold = 0.03;  // 基础阈值（比之前低很多）
+            
             const onsets = [];
-            const windowSize = 7; // 检查前后各 3 帧
-            const threshold = 0.15; // 阈值
-            const minIntervalMs = 80; // 最小 onset 间隔 (ms)
             const frameTimeMs = (hopSize / sampleRate) * 1000;
+            const minIntervalMs = 60; // 最小间隔 60ms（更密）
             
             let lastOnsetTime = -Infinity;
             
-            for (let i = windowSize; i < onsetFunction.length - windowSize; i++) {
+            for (let i = 10; i < onsetFunction.length - 10; i++) {
                 const current = onsetFunction[i];
-                if (current < threshold) continue;
                 
-                // 检查是否是局部最大值
+                // 计算局部平均值作为动态阈值
+                let localSum = 0;
+                let localCount = 0;
+                for (let j = Math.max(0, i - thresholdWindow); j < Math.min(onsetFunction.length, i + thresholdWindow); j++) {
+                    localSum += onsetFunction[j];
+                    localCount++;
+                }
+                const localAvg = localSum / localCount;
+                const dynamicThreshold = Math.max(baseThreshold, localAvg * 1.3);
+                
+                if (current < dynamicThreshold) continue;
+                
+                // 检查是否是局部最大值（小窗口）
                 let isPeak = true;
-                for (let j = 1; j <= windowSize; j++) {
-                    if (onsetFunction[i - j] > current || onsetFunction[i + j] >= current) {
+                for (let j = 1; j <= 4; j++) {
+                    if (onsetFunction[i - j] > current || onsetFunction[i + j] > current) {
                         isPeak = false;
                         break;
                     }
@@ -1400,95 +1423,144 @@ async function detectOnsets(audioBuffer) {
                 }
             }
             
+            // 5. 确保 onset 覆盖整个音乐时长
+            // 如果 onset 只在前面，在后面均匀补充
+            if (onsets.length > 0) {
+                const lastOnset = onsets[onsets.length - 1].time;
+                if (lastOnset < durationMs * 0.7) {
+                    // 后面 30% 没有 onset，补充
+                    const startFrom = Math.max(lastOnset + 500, durationMs * 0.5);
+                    const avgInterval = lastOnset / onsets.length;
+                    for (let t = startFrom; t < durationMs - 500; t += avgInterval) {
+                        onsets.push({ time: t, strength: 0.1 });
+                    }
+                    onsets.sort((a, b) => a.time - b.time);
+                }
+            }
+            
             resolve(onsets);
         }, 50);
     });
 }
 
-// 根据 onset 和难度生成谱面
+// 根据 onset 和难度生成谱面 - 音符数量根据音乐时长决定
 function generateChartFromOnsets(onsets, difficulty, duration) {
-    if (onsets.length === 0) {
-        // 如果没检测到 onset，生成一个简单的默认谱面
-        return generateDefaultChart(duration);
-    }
-    
-    const notes = [];
+    const durationMs = duration * 1000;
     const leadIn = 2000; // 2秒预备
     
-    // 难度参数
+    // 难度参数：大幅增加密度
     const diffSettings = {
-        easy:   { density: 0.4, minGap: 250, chordChance: 0.0, doubleNote: false },
-        normal: { density: 0.7, minGap: 150, chordChance: 0.08, doubleNote: false },
-        hard:   { density: 1.0, minGap: 100, chordChance: 0.15, doubleNote: true }
+        easy:   { notesPerSec: 2.5, minGap: 180, chordChance: 0.02 },
+        normal: { notesPerSec: 4.0, minGap: 120, chordChance: 0.08 },
+        hard:   { notesPerSec: 6.0, minGap: 80,  chordChance: 0.15 }
     };
     
     const settings = diffSettings[difficulty] || diffSettings.normal;
+    const targetNoteCount = Math.floor(duration * settings.notesPerSec);
     
-    // 1. 根据强度筛选 onset
-    const sorted = [...onsets].sort((a, b) => b.strength - a.strength);
-    const keepCount = Math.max(20, Math.floor(onsets.length * settings.density));
-    const strongOnsets = sorted.slice(0, keepCount).sort((a, b) => a.time - b.time);
+    const notes = [];
     
-    // 2. 过滤掉间隔太近的
-    const filtered = [];
-    let lastTime = -Infinity;
-    for (const onset of strongOnsets) {
-        if (onset.time - lastTime >= settings.minGap) {
-            filtered.push(onset);
-            lastTime = onset.time;
-        }
-    }
-    
-    // 3. 分配轨道 - 用伪随机但有模式的方式
-    // 根据 onset 强度和时间来决定轨道
-    let lanePattern = [0, 1, 2, 3, 1, 2, 0, 3]; // 基础模式
-    let patternIndex = 0;
-    
-    for (let i = 0; i < filtered.length; i++) {
-        const onset = filtered[i];
-        const noteTime = leadIn + onset.time;
+    // 1. 如果有检测到的 onset，优先使用
+    if (onsets.length > 0) {
+        // 根据强度排序，取最强的 onset
+        const sorted = [...onsets].sort((a, b) => b.strength - a.strength);
         
-        // 主音符
-        let lane;
-        if (i === 0) {
-            lane = 0; // 第一个音符从最左边开始
-        } else {
-            // 结合模式和强度来决定
-            const strengthFactor = Math.floor(onset.strength * 4);
-            lane = (lanePattern[patternIndex % lanePattern.length] + strengthFactor) % 4;
+        // 取足够的 onset（目标数量的 80%）
+        const keepFromOnsets = Math.min(onsets.length, Math.floor(targetNoteCount * 0.8));
+        const selectedOnsets = sorted.slice(0, keepFromOnsets).sort((a, b) => a.time - b.time);
+        
+        // 过滤间隔太近的
+        const filtered = [];
+        let lastTime = -Infinity;
+        for (const onset of selectedOnsets) {
+            if (onset.time - lastTime >= settings.minGap) {
+                filtered.push(onset);
+                lastTime = onset.time;
+            }
+        }
+        
+        // 分配轨道
+        let lanePattern = [0, 1, 2, 3, 1, 2, 0, 3, 2, 1, 3, 0];
+        let patternIndex = 0;
+        
+        for (let i = 0; i < filtered.length; i++) {
+            const onset = filtered[i];
+            const noteTime = leadIn + onset.time;
+            
+            // 根据强度决定轨道偏移
+            const strengthFactor = Math.floor(onset.strength * 8) % 4;
+            const lane = (lanePattern[patternIndex % lanePattern.length] + strengthFactor) % 4;
             patternIndex++;
-        }
-        
-        notes.push([noteTime, lane]);
-        
-        // 偶尔添加和弦（同时多个音符）
-        if (settings.chordChance > 0 && Math.random() < settings.chordChance && i > 0) {
-            let lane2 = (lane + 1 + Math.floor(Math.random() * 3)) % 4;
-            notes.push([noteTime, lane2]);
-        }
-    }
-    
-    // 4. 如果音符太少，补充一些
-    const minNotes = { easy: 30, normal: 50, hard: 80 };
-    if (notes.length < minNotes[difficulty]) {
-        const additional = generateDefaultChart(duration, difficulty);
-        // 合并去重
-        for (const n of additional) {
-            notes.push(n);
+            
+            notes.push([noteTime, lane]);
+            
+            // 强 onset 可能有和弦
+            if (onset.strength > 0.3 && Math.random() < settings.chordChance) {
+                let lane2 = (lane + 2 + Math.floor(Math.random() * 2)) % 4;
+                notes.push([noteTime, lane2]);
+            }
         }
     }
     
+    // 2. 如果音符不够，用均匀分布补充到目标数量
+    if (notes.length < targetNoteCount) {
+        const needed = targetNoteCount - notes.length;
+        const interval = durationMs / needed;
+        
+        let lanePattern = [0, 2, 1, 3, 0, 1, 2, 3, 1, 0, 3, 2];
+        let patternIndex = 0;
+        
+        for (let i = 0; i < needed; i++) {
+            // 在区间内随机偏移一点，让节奏不那么死板
+            const jitter = (Math.random() - 0.5) * interval * 0.3;
+            const noteTime = leadIn + i * interval + jitter;
+            
+            // 不要和已有音符太近
+            let tooClose = false;
+            for (const n of notes) {
+                if (Math.abs(n[0] - noteTime) < settings.minGap) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            if (tooClose) continue;
+            
+            const lane = lanePattern[patternIndex % lanePattern.length];
+            patternIndex++;
+            
+            notes.push([noteTime, lane]);
+        }
+    }
+    
+    // 3. 确保最后一个音符接近音乐结束
+    const lastNoteTime = leadIn + durationMs - 1000; // 音乐结束前1秒
+    const currentLast = notes.length > 0 ? notes[notes.length - 1][0] : 0;
+    if (currentLast < lastNoteTime - 2000) {
+        // 补充尾部音符
+        const tailStart = Math.max(currentLast + 500, leadIn + durationMs * 0.8);
+        const tailInterval = 400;
+        let laneIdx = 0;
+        for (let t = tailStart; t < lastNoteTime; t += tailInterval) {
+            notes.push([t, laneIdx % 4]);
+            laneIdx++;
+        }
+    }
+    
+    // 排序并返回
     return notes.sort((a, b) => a[0] - b[0]);
 }
 
-// 生成默认谱面（当 onset 检测失败时）
+// 生成默认谱面（当 onset 检测失败时）- 按音乐时长
 function generateDefaultChart(duration, difficulty = 'normal') {
-    const bpmMap = { easy: 90, normal: 120, hard: 150 };
-    const countMap = { easy: 30, normal: 60, hard: 100 };
+    const bpmMap = { easy: 90, normal: 120, hard: 160 };
     const bpm = bpmMap[difficulty];
-    const count = countMap[difficulty];
     
-    return generatePattern(bpm, count, [0.3, 0.3, 0.2, 0.2]);
+    // 根据音乐时长决定音符数量
+    const notesPerBeat = difficulty === 'easy' ? 0.5 : difficulty === 'hard' ? 1.5 : 1;
+    const totalBeats = (duration / 60) * bpm;
+    const count = Math.max(30, Math.floor(totalBeats * notesPerBeat));
+    
+    return generatePattern(bpm, count, [0.25, 0.25, 0.25, 0.25]);
 }
 
 // 估算 BPM
