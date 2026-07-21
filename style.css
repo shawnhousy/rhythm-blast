@@ -551,6 +551,10 @@ body {
     margin: 0 auto;
     display: flex;
     flex-direction: column;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
 }
 
 .track-container {

@@ -420,104 +420,113 @@ function releaseKey(lane) {
 
 // ========== 触控支持 ==========
 function initTouchControls() {
-    // ---- 底部按键触控 ----
-    const keyEls = document.querySelectorAll('.key');
-    keyEls.forEach((keyEl, lane) => {
-        // 触摸开始
-        keyEl.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            initAudio();
-            if (game.running && !game.paused) {
-                pressKey(lane);
+    // ---- 整个游戏轨道的全局触控（覆盖所有区域：轨道+判定线+按键） ----
+    const gameTrack = document.querySelector('.game-track');
+    const activeTouches = new Map(); // touchId -> lane
+
+    function getLaneFromX(clientX) {
+        if (!gameTrack) return -1;
+        const rect = gameTrack.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const laneWidth = rect.width / 4;
+        const lane = Math.floor(x / laneWidth);
+        return Math.max(0, Math.min(3, lane));
+    }
+
+    function triggerLane(lane) {
+        if (lane < 0 || lane > 3) return;
+        if (!game.running || game.paused) return;
+        initAudio();
+        pressKey(lane);
+    }
+
+    function releaseLane(lane) {
+        if (lane < 0 || lane > 3) return;
+        releaseKey(lane);
+    }
+
+    // 触摸事件 - 整个游戏区域
+    gameTrack.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        initAudio();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            const lane = getLaneFromX(touch.clientX);
+            if (lane >= 0) {
+                activeTouches.set(touch.identifier, lane);
+                triggerLane(lane);
             }
-        }, { passive: false });
+        }
+    }, { passive: false });
 
-        // 触摸结束
-        keyEl.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            releaseKey(lane);
-        }, { passive: false });
-
-        // 触摸取消
-        keyEl.addEventListener('touchcancel', (e) => {
-            e.preventDefault();
-            releaseKey(lane);
-        }, { passive: false });
-
-        // 鼠标点击（桌面端也能用）
-        keyEl.addEventListener('mousedown', (e) => {
-            e.preventDefault();
-            initAudio();
-            if (game.running && !game.paused) {
-                pressKey(lane);
+    gameTrack.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        // 手指滑动到不同轨道时，切换打击轨道
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            const newLane = getLaneFromX(touch.clientX);
+            const oldLane = activeTouches.get(touch.identifier);
+            if (oldLane !== undefined && oldLane !== newLane) {
+                releaseLane(oldLane);
+                activeTouches.set(touch.identifier, newLane);
+                triggerLane(newLane);
             }
-        });
-        keyEl.addEventListener('mouseup', (e) => {
-            e.preventDefault();
-            releaseKey(lane);
-        });
-        keyEl.addEventListener('mouseleave', () => {
-            releaseKey(lane);
-        });
+        }
+    }, { passive: false });
+
+    gameTrack.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            const lane = activeTouches.get(touch.identifier);
+            if (lane !== undefined) {
+                releaseLane(lane);
+                activeTouches.delete(touch.identifier);
+            }
+        }
+    }, { passive: false });
+
+    gameTrack.addEventListener('touchcancel', (e) => {
+        e.preventDefault();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            const lane = activeTouches.get(touch.identifier);
+            if (lane !== undefined) {
+                releaseLane(lane);
+                activeTouches.delete(touch.identifier);
+            }
+        }
+    }, { passive: false });
+
+    // 鼠标事件 - 桌面端点击整个游戏区域
+    let mousePressed = false;
+    let currentMouseLane = -1;
+
+    gameTrack.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        mousePressed = true;
+        initAudio();
+        const lane = getLaneFromX(e.clientX);
+        currentMouseLane = lane;
+        triggerLane(lane);
     });
 
-    // ---- 轨道垂直触控（点击轨道任意位置打击） ----
-    const laneEls = document.querySelectorAll('.track-lane');
-    laneEls.forEach((laneEl, lane) => {
-        // 处理触摸 - 支持多点触控
-        const activeTouches = new Map(); // touchId -> lane
+    document.addEventListener('mousemove', (e) => {
+        if (!mousePressed) return;
+        const lane = getLaneFromX(e.clientX);
+        if (lane !== currentMouseLane) {
+            releaseLane(currentMouseLane);
+            currentMouseLane = lane;
+            triggerLane(lane);
+        }
+    });
 
-        laneEl.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            initAudio();
-            if (!game.running || game.paused) return;
-
-            // 处理所有新触摸点
-            for (let i = 0; i < e.changedTouches.length; i++) {
-                const touch = e.changedTouches[i];
-                activeTouches.set(touch.identifier, lane);
-                pressKey(lane);
-            }
-        }, { passive: false });
-
-        laneEl.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            for (let i = 0; i < e.changedTouches.length; i++) {
-                const touch = e.changedTouches[i];
-                if (activeTouches.has(touch.identifier)) {
-                    activeTouches.delete(touch.identifier);
-                    releaseKey(lane);
-                }
-            }
-        }, { passive: false });
-
-        laneEl.addEventListener('touchcancel', (e) => {
-            e.preventDefault();
-            for (let i = 0; i < e.changedTouches.length; i++) {
-                const touch = e.changedTouches[i];
-                if (activeTouches.has(touch.identifier)) {
-                    activeTouches.delete(touch.identifier);
-                    releaseKey(lane);
-                }
-            }
-        }, { passive: false });
-
-        // 鼠标点击轨道（桌面端）
-        laneEl.addEventListener('mousedown', (e) => {
-            e.preventDefault();
-            initAudio();
-            if (game.running && !game.paused) {
-                pressKey(lane);
-            }
-        });
-        laneEl.addEventListener('mouseup', (e) => {
-            e.preventDefault();
-            releaseKey(lane);
-        });
-        laneEl.addEventListener('mouseleave', () => {
-            releaseKey(lane);
-        });
+    document.addEventListener('mouseup', () => {
+        if (mousePressed) {
+            mousePressed = false;
+            releaseLane(currentMouseLane);
+            currentMouseLane = -1;
+        }
     });
 
     // 防止页面滚动/缩放
