@@ -168,6 +168,71 @@ const SONGS = [
         notes: [],
         isCloud: true,
         audioUrl: "https://pub-ec7f16177eaf4223b7553abeb18c80d6.r2.dev/Delacey%20-%20Dream%20It%20Possible.mp3"
+    },
+    {
+        id: 104,
+        title: "Beat It",
+        artist: "Michael Jackson",
+        cover: "🎸",
+        bpm: 0,
+        difficulty: "cloud",
+        difficultyLabel: "云曲库",
+        color: "#8b5cf6",
+        notes: [],
+        isCloud: true,
+        audioUrl: "https://pub-ec7f16177eaf4223b7553abeb18c80d6.r2.dev/Michael%20Jackson%20-%20Beat%20It.mp3"
+    },
+    {
+        id: 105,
+        title: "Unwelcome School",
+        artist: "ミツキヨ",
+        cover: "🏫",
+        bpm: 0,
+        difficulty: "cloud",
+        difficultyLabel: "云曲库",
+        color: "#8b5cf6",
+        notes: [],
+        isCloud: true,
+        audioUrl: "https://pub-ec7f16177eaf4223b7553abeb18c80d6.r2.dev/%E3%83%9F%E3%83%84%E3%82%AD%E3%83%A8%20-%20Unwelcome%20school_1.mp3"
+    },
+    {
+        id: 106,
+        title: "冬の花",
+        artist: "宮本浩次",
+        cover: "❄️",
+        bpm: 0,
+        difficulty: "cloud",
+        difficultyLabel: "云曲库",
+        color: "#8b5cf6",
+        notes: [],
+        isCloud: true,
+        audioUrl: "https://pub-ec7f16177eaf4223b7553abeb18c80d6.r2.dev/%E5%AE%AE%E6%9C%AC%E6%B5%A9%E6%AC%A1%20-%20%E5%86%AC%E3%81%AE%E8%8A%B1_1.mp3"
+    },
+    {
+        id: 107,
+        title: "夜莺与蔷薇",
+        artist: "郑国棠",
+        cover: "🌹",
+        bpm: 0,
+        difficulty: "cloud",
+        difficultyLabel: "云曲库",
+        color: "#8b5cf6",
+        notes: [],
+        isCloud: true,
+        audioUrl: "https://pub-ec7f16177eaf4223b7553abeb18c80d6.r2.dev/%E9%83%91%E5%9B%BD%E6%A3%A0%20-%20%E5%A4%9C%E8%8E%BA%E4%B8%8E%E8%94%B7%E8%96%87.mp3"
+    },
+    {
+        id: 108,
+        title: "千本桜",
+        artist: "黒うさP 初音ミク",
+        cover: "🌸",
+        bpm: 0,
+        difficulty: "cloud",
+        difficultyLabel: "云曲库",
+        color: "#8b5cf6",
+        notes: [],
+        isCloud: true,
+        audioUrl: "https://pub-ec7f16177eaf4223b7553abeb18c80d6.r2.dev/%E9%BB%92%E3%81%86%E3%81%95P%20%E5%88%9D%E9%9F%B3%E3%83%9F%E3%82%AF%20-%20%E5%8D%83%E6%9C%AC%E6%A1%9C.mp3"
     }
 ];
 
