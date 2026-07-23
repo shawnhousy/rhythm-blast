@@ -2,6 +2,8 @@
 let audioCtx = null;
 let audioEnabled = false;
 let masterGain = null;
+let hitSampleBuffer = null; // 预加载的打击音效采样
+let samplesLoaded = false;
 
 function initAudio() {
     if (audioEnabled) return;
@@ -11,7 +13,39 @@ function initAudio() {
         masterGain.gain.value = 0.8;
         masterGain.connect(audioCtx.destination);
         audioEnabled = true;
+        // 预加载打击音效采样
+        loadHitSamples();
     } catch (e) { console.log('Audio not supported'); }
+}
+
+// 预加载WAV采样音效
+async function loadHitSamples() {
+    if (samplesLoaded || !audioCtx) return;
+    try {
+        const resp = await fetch('assets/sounds/hit-hard.wav');
+        if (!resp.ok) throw new Error('采样加载失败');
+        const arrayBuffer = await resp.arrayBuffer();
+        hitSampleBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+        samplesLoaded = true;
+    } catch (e) {
+        console.log('打击音效采样加载失败，将使用合成音:', e.message);
+        samplesLoaded = false;
+    }
+}
+
+// 播放预加载的采样音效
+function playSample(buffer, volume = 1.0, playbackRate = 1.0) {
+    if (!audioEnabled || !audioCtx || !buffer || !masterGain) return;
+    const now = audioCtx.currentTime;
+    const source = audioCtx.createBufferSource();
+    const gain = audioCtx.createGain();
+    source.buffer = buffer;
+    source.playbackRate.value = playbackRate;
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + buffer.duration);
+    source.connect(gain);
+    gain.connect(masterGain);
+    source.start(now);
 }
 
 // 播放厚重打击音（多层振荡器 + 快速衰减包络）
@@ -93,26 +127,41 @@ function playHit(freq, duration = 0.15, options = {}) {
 }
 
 function playHitSound(type) {
+    // 如果采样已加载，Perfect和Great使用WAV采样
+    if (hitSampleBuffer && samplesLoaded) {
+        if (type === 'perfect') {
+            // Perfect：最高音调 + 最大音量
+            playSample(hitSampleBuffer, 0.95, 1.15);
+            return;
+        }
+        if (type === 'great') {
+            // Great：正常音调 + 正常音量
+            playSample(hitSampleBuffer, 0.85, 1.0);
+            return;
+        }
+        if (type === 'good') {
+            // Good：无音效
+            return;
+        }
+    }
+    
+    // 采样未加载时使用合成音（Miss始终使用合成音）
     const sounds = {
         perfect: () => {
-            // 明亮高亢 + 强冲击
             playHit(1100, 0.18, { volume: 0.75, type: 'triangle', addLow: true, addNoise: true });
             setTimeout(() => playHit(1650, 0.12, { volume: 0.45, type: 'square', addLow: false }), 15);
         },
         great: () => {
-            // 厚实有力
             playHit(880, 0.16, { volume: 0.7, type: 'triangle', addLow: true, addNoise: true });
         },
         good: () => {
-            // 中等
-            playHit(660, 0.14, { volume: 0.6, type: 'triangle', addLow: true, addNoise: false });
+            // Good：无音效
         },
         miss: () => {
-            // 低沉失败音
             playHit(180, 0.25, { volume: 0.65, type: 'sawtooth', addLow: true, addNoise: true });
         }
     };
-    (sounds[type] || sounds.good)();
+    (sounds[type] || sounds.great)();
 }
 
 function playBeat() {
