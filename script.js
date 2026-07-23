@@ -363,8 +363,9 @@ async function startCloudSong(song) {
     updateAnalyzingProgress(5, '正在下载音频...');
     
     try {
-        // 1. 下载音频
-        const resp = await fetch(song.audioUrl);
+        // 1. 通过代理 API 下载音频（解决跨域问题）
+        const proxyUrl = `/api/audio-proxy?url=${encodeURIComponent(song.audioUrl)}`;
+        const resp = await fetch(proxyUrl);
         if (!resp.ok) throw new Error('下载失败：' + resp.status);
         const arrayBuffer = await resp.arrayBuffer();
         
