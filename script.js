@@ -1,41 +1,152 @@
 // ========== 音频系统 ==========
 let audioCtx = null;
 let audioEnabled = false;
+let masterGain = null;
 
 function initAudio() {
     if (audioEnabled) return;
     try {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        masterGain = audioCtx.createGain();
+        masterGain.gain.value = 0.8;
+        masterGain.connect(audioCtx.destination);
         audioEnabled = true;
     } catch (e) { console.log('Audio not supported'); }
 }
 
-function playTone(freq, dur, type = 'sine', vol = 0.3) {
+// 播放厚重打击音（多层振荡器 + 快速衰减包络）
+function playHit(freq, duration = 0.15, options = {}) {
     if (!audioEnabled || !audioCtx) return;
+    
+    const now = audioCtx.currentTime;
+    const vol = options.volume ?? 0.6;
+    const type = options.type ?? 'triangle';
+    const detune = options.detune ?? 0;
+    const addLow = options.addLow ?? true;
+    const addNoise = options.addNoise ?? false;
+    
+    // --- 主音层 ---
     const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.frequency.value = freq;
+    const oscGain = audioCtx.createGain();
     osc.type = type;
-    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
-    osc.start(audioCtx.currentTime);
-    osc.stop(audioCtx.currentTime + dur);
+    osc.frequency.value = freq;
+    osc.detune.value = detune;
+    
+    // 快速打击包络
+    oscGain.gain.setValueAtTime(0, now);
+    oscGain.gain.linearRampToValueAtTime(vol * 0.7, now + 0.003);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    
+    osc.connect(oscGain);
+    oscGain.connect(masterGain);
+    osc.start(now);
+    osc.stop(now + duration + 0.02);
+    
+    // --- 泛音层（高八度，增加亮度）---
+    const osc2 = audioCtx.createOscillator();
+    const osc2Gain = audioCtx.createGain();
+    osc2.type = 'square';
+    osc2.frequency.value = freq * 2;
+    osc2Gain.gain.setValueAtTime(0, now);
+    osc2Gain.gain.linearRampToValueAtTime(vol * 0.15, now + 0.002);
+    osc2Gain.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.6);
+    osc2.connect(osc2Gain);
+    osc2Gain.connect(masterGain);
+    osc2.start(now);
+    osc2.stop(now + duration * 0.7);
+    
+    // --- 低频层（增加厚重感和冲击力）---
+    if (addLow) {
+        const lowOsc = audioCtx.createOscillator();
+        const lowGain = audioCtx.createGain();
+        lowOsc.type = 'sine';
+        lowOsc.frequency.value = freq * 0.5;
+        lowGain.gain.setValueAtTime(0, now);
+        lowGain.gain.linearRampToValueAtTime(vol * 0.5, now + 0.005);
+        lowGain.gain.exponentialRampToValueAtTime(0.001, now + duration * 1.2);
+        lowOsc.connect(lowGain);
+        lowGain.connect(masterGain);
+        lowOsc.start(now);
+        lowOsc.stop(now + duration * 1.3);
+    }
+    
+    // --- 噪声层（增加打击感）---
+    if (addNoise) {
+        const bufferSize = Math.floor(audioCtx.sampleRate * duration * 0.5);
+        const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const noiseData = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            noiseData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2);
+        }
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = noiseBuffer;
+        const noiseGain = audioCtx.createGain();
+        noiseGain.gain.value = vol * 0.2;
+        const noiseFilter = audioCtx.createBiquadFilter();
+        noiseFilter.type = 'bandpass';
+        noiseFilter.frequency.value = freq * 1.5;
+        noise.connect(noiseFilter);
+        noiseFilter.connect(noiseGain);
+        noiseGain.connect(masterGain);
+        noise.start(now);
+    }
 }
 
 function playHitSound(type) {
     const sounds = {
-        perfect: () => { playTone(880, 0.08, 'sine', 0.4); playTone(1320, 0.06, 'sine', 0.2); },
-        great: () => { playTone(660, 0.08, 'sine', 0.3); },
-        good: () => { playTone(440, 0.08, 'sine', 0.25); },
-        miss: () => { playTone(150, 0.15, 'sawtooth', 0.2); }
+        perfect: () => {
+            // 明亮高亢 + 强冲击
+            playHit(1100, 0.18, { volume: 0.75, type: 'triangle', addLow: true, addNoise: true });
+            setTimeout(() => playHit(1650, 0.12, { volume: 0.45, type: 'square', addLow: false }), 15);
+        },
+        great: () => {
+            // 厚实有力
+            playHit(880, 0.16, { volume: 0.7, type: 'triangle', addLow: true, addNoise: true });
+        },
+        good: () => {
+            // 中等
+            playHit(660, 0.14, { volume: 0.6, type: 'triangle', addLow: true, addNoise: false });
+        },
+        miss: () => {
+            // 低沉失败音
+            playHit(180, 0.25, { volume: 0.65, type: 'sawtooth', addLow: true, addNoise: true });
+        }
     };
     (sounds[type] || sounds.good)();
 }
 
 function playBeat() {
-    playTone(80, 0.08, 'sine', 0.3);
+    // 更厚的节拍音
+    if (!audioEnabled || !audioCtx) return;
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(120, now);
+    osc.frequency.exponentialRampToValueAtTime(60, now + 0.1);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.5, now + 0.003);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    osc.connect(gain);
+    gain.connect(masterGain);
+    osc.start(now);
+    osc.stop(now + 0.15);
+}
+
+// 简单提示音（供反应测试等使用）
+function playTone(freq, dur, type = 'sine', vol = 0.3) {
+    if (!audioEnabled || !audioCtx) return;
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    osc.connect(gain);
+    gain.connect(masterGain);
+    osc.start(now);
+    osc.stop(now + dur);
 }
 
 // ========== 背景粒子 ==========
