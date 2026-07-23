@@ -737,7 +737,7 @@ function gameLoop() {
         note.element.style.top = y + 'px';
         
         // 检查是否过了判定线（Miss）
-        if (now > note.targetTime + 200 && !note.hit) {
+        if (now > note.targetTime + 250 && !note.hit) {
             noteMiss(note);
             game.activeNotes.splice(i, 1);
         }
@@ -978,13 +978,13 @@ function hitNote(note, diff) {
     
     let judgment, scoreAdd;
     
-    if (diff <= 50) {
+    if (diff <= 75) {
         judgment = 'perfect';
         scoreAdd = 1000;
-    } else if (diff <= 100) {
+    } else if (diff <= 140) {
         judgment = 'great';
         scoreAdd = 700;
-    } else if (diff <= 200) {
+    } else if (diff <= 220) {
         judgment = 'good';
         scoreAdd = 400;
     } else {
