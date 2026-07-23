@@ -177,6 +177,32 @@
         </div>
     </div>
 
+    <!-- 云曲库难度选择模态框 -->
+    <div id="cloudDifficultyModal" class="modal-overlay">
+        <div class="modal-container">
+            <h2 class="modal-title" id="cloudModalTitle">选择难度</h2>
+            <p class="modal-subtitle" id="cloudModalSubtitle">海阔天空 - Beyond</p>
+            <div class="cloud-diff-buttons">
+                <button class="cloud-diff-btn diff-easy" onclick="confirmCloudDifficulty('easy')">
+                    <div class="cloud-diff-icon">🌱</div>
+                    <div class="cloud-diff-name">简单</div>
+                    <div class="cloud-diff-desc">音符较少，适合入门</div>
+                </button>
+                <button class="cloud-diff-btn diff-normal" onclick="confirmCloudDifficulty('normal')">
+                    <div class="cloud-diff-icon">⚡</div>
+                    <div class="cloud-diff-name">普通</div>
+                    <div class="cloud-diff-desc">适中节奏，推荐体验</div>
+                </button>
+                <button class="cloud-diff-btn diff-hard" onclick="confirmCloudDifficulty('hard')">
+                    <div class="cloud-diff-icon">🔥</div>
+                    <div class="cloud-diff-name">困难</div>
+                    <div class="cloud-diff-desc">密集音符，挑战手速</div>
+                </button>
+            </div>
+            <button class="modal-cancel-btn" onclick="closeCloudDifficultyModal()">取消</button>
+        </div>
+    </div>
+
     <!-- 游戏界面 -->
     <div id="game" class="screen">
         <!-- 顶部信息 -->

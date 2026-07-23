@@ -1443,6 +1443,129 @@ body {
     font-size: 14px;
 }
 
+/* ========== 模态框 ========== */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+.modal-overlay.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+.modal-container {
+    background: var(--surface);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 36px 32px;
+    max-width: 560px;
+    width: 90%;
+    text-align: center;
+    transform: scale(0.92);
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.modal-overlay.show .modal-container {
+    transform: scale(1);
+}
+
+.modal-title {
+    font-size: 26px;
+    font-weight: 800;
+    margin-bottom: 6px;
+    background: linear-gradient(135deg, var(--accent), #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.modal-subtitle {
+    color: var(--text-muted);
+    font-size: 15px;
+    margin-bottom: 28px;
+}
+
+.cloud-diff-buttons {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-bottom: 24px;
+}
+
+.cloud-diff-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border: 2px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 22px 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: var(--text-primary);
+    font-family: inherit;
+}
+
+.cloud-diff-btn:hover {
+    transform: translateY(-4px);
+    border-color: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.cloud-diff-btn.diff-easy:hover { border-color: var(--success); box-shadow: 0 8px 32px rgba(16, 185, 129, 0.25); }
+.cloud-diff-btn.diff-normal:hover { border-color: var(--accent); box-shadow: 0 8px 32px rgba(34, 211, 238, 0.25); }
+.cloud-diff-btn.diff-hard:hover { border-color: var(--warning); box-shadow: 0 8px 32px rgba(245, 158, 11, 0.25); }
+
+.cloud-diff-icon {
+    font-size: 38px;
+    margin-bottom: 10px;
+}
+
+.cloud-diff-name {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.cloud-diff-btn.diff-easy .cloud-diff-name { color: var(--success); }
+.cloud-diff-btn.diff-normal .cloud-diff-name { color: var(--accent); }
+.cloud-diff-btn.diff-hard .cloud-diff-name { color: var(--warning); }
+
+.cloud-diff-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.modal-cancel-btn {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text-muted);
+    padding: 10px 32px;
+    border-radius: 10px;
+    font-size: 14px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s ease;
+}
+
+.modal-cancel-btn:hover {
+    color: var(--text-primary);
+    border-color: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.05);
+}
+
 /* ========== 响应式 ========== */
 @media (max-width: 768px) {
     .game-title { font-size: 48px; }
@@ -1490,6 +1613,14 @@ body {
         height: 32px;
         font-size: 14px;
     }
+    .modal-container { padding: 24px 18px; }
+    .modal-title { font-size: 22px; }
+    .modal-subtitle { font-size: 13px; margin-bottom: 20px; }
+    .cloud-diff-buttons { grid-template-columns: 1fr; gap: 10px; }
+    .cloud-diff-btn { padding: 16px; display: flex; align-items: center; gap: 14px; text-align: left; }
+    .cloud-diff-icon { font-size: 28px; margin-bottom: 0; }
+    .cloud-diff-name { font-size: 16px; margin-bottom: 2px; }
+    .cloud-diff-desc { font-size: 11px; }
 }
 
 /* 小屏手机 */

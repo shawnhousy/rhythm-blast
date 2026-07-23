@@ -288,8 +288,11 @@ function renderSongList() {
 
 function renderSongCard(song) {
     const bpmDisplay = song.isCloud ? '动态分析' : `BPM ${song.bpm}`;
+    const clickHandler = song.isCloud 
+        ? `showCloudDifficultyModal(${song.id})` 
+        : `startGame(${song.id})`;
     return `
-        <div class="song-card" onclick="startGame(${song.id})">
+        <div class="song-card" onclick="${clickHandler}">
             <div class="song-cover" style="background: linear-gradient(135deg, ${song.color}, ${song.color}88);">
                 ${song.cover}
             </div>
@@ -303,6 +306,34 @@ function renderSongCard(song) {
             </div>
         </div>
     `;
+}
+
+// 云曲库难度选择
+let pendingCloudSongId = null;
+
+function showCloudDifficultyModal(songId) {
+    pendingCloudSongId = songId;
+    const song = SONGS.find(s => s.id === songId);
+    if (!song) return;
+    
+    document.getElementById('cloudModalSubtitle').textContent = `${song.title} - ${song.artist}`;
+    document.getElementById('cloudDifficultyModal').classList.add('show');
+}
+
+function closeCloudDifficultyModal() {
+    pendingCloudSongId = null;
+    document.getElementById('cloudDifficultyModal').classList.remove('show');
+}
+
+function confirmCloudDifficulty(difficulty) {
+    const songId = pendingCloudSongId;
+    closeCloudDifficultyModal();
+    if (!songId) return;
+    
+    const song = SONGS.find(s => s.id === songId);
+    if (!song) return;
+    
+    startCloudSong(song, difficulty);
 }
 
 // ========== 游戏初始化 ==========
@@ -351,7 +382,7 @@ function startGame(songId) {
 }
 
 // 云曲库歌曲：从 URL 下载音频并动态分析
-async function startCloudSong(song) {
+async function startCloudSong(song, difficulty = 'normal') {
     initAudio();
     if (!audioCtx) {
         alert('浏览器不支持 Web Audio API！');
@@ -381,9 +412,9 @@ async function startCloudSong(song) {
         
         updateAnalyzingProgress(80, '正在生成谱面...');
         
-        // 4. 默认普通难度生成谱面
-        const defaultDiff = 'normal';
-        const notes = generateChartFromOnsets(onsets, defaultDiff, customAudioBuffer.duration);
+        // 4. 用选择的难度生成谱面
+        const validDiff = ['easy', 'normal', 'hard'].includes(difficulty) ? difficulty : 'normal';
+        const notes = generateChartFromOnsets(onsets, validDiff, customAudioBuffer.duration);
         const estimatedBPM = estimateBPM(onsets);
         
         // 5. 创建歌曲对象（和自定义歌曲一样的逻辑）
@@ -396,9 +427,9 @@ async function startCloudSong(song) {
             artist: song.artist,
             cover: song.cover,
             bpm: estimatedBPM,
-            difficulty: defaultDiff,
-            difficultyLabel: diffMap[defaultDiff],
-            color: colorMap[defaultDiff],
+            difficulty: validDiff,
+            difficultyLabel: diffMap[validDiff],
+            color: colorMap[validDiff],
             notes: notes,
             isCustom: true,
             duration: customAudioBuffer.duration
