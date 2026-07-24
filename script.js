@@ -930,12 +930,12 @@ function releaseKey(lane) {
         if (heldNote.completed) {
             // 已完成，清理
             delete game.heldNotes[lane];
-        } else if (now >= heldNote.endTime) {
-            // 刚好到结束时间，完成长条
+        } else if (now >= heldNote.endTime - 80) {
+            // 距结束时间80ms内松手，算完成
             completeHold(heldNote);
             delete game.heldNotes[lane];
         } else {
-            // 提前松手：断 combo，不重复计 miss stat（头部判定已计入）
+            // 提前松手（超过80ms）：断 combo
             heldNote.holding = false;
             heldNote.hit = true;
             game.combo = 0;
@@ -2106,15 +2106,14 @@ function generateChartFromOnsets(onsets, difficulty, duration) {
 function mergeConsecutiveNotes(notes, maxGap = 280, minGap = 80) {
     if (notes.length === 0) return notes;
     
-    const result = [];
+    // 第一遍：找出同轨连续序列（至少3个才合并）
+    const sequences = []; // { startIdx, endIdx, time, lane, endTime }
     let i = 0;
-    
     while (i < notes.length) {
         const [time, lane] = notes[i];
         let endTime = time;
         let j = i + 1;
         
-        // 找到同一轨道上间隔在 maxGap 以内的连续音符
         while (j < notes.length) {
             const nextTime = notes[j][0];
             const nextLane = notes[j][1];
@@ -2128,19 +2127,68 @@ function mergeConsecutiveNotes(notes, maxGap = 280, minGap = 80) {
             }
         }
         
-        if (j > i + 1) {
-            // 多个连续音符 → 合并为长条
-            const duration = endTime - time;
-            result.push([time, lane, duration]);
-            i = j;
-        } else {
-            // 单个音符保持不变
-            result.push(notes[i]);
-            i++;
+        if (j - i >= 3) {
+            sequences.push({ startIdx: i, endIdx: j, time, lane, endTime });
+        }
+        i = j;
+    }
+    
+    // 第二遍：构建结果，长条与其他轨道音符对齐
+    // 先收集所有将被替换为长条的索引
+    const replacedIndices = new Set();
+    for (const seq of sequences) {
+        for (let k = seq.startIdx; k < seq.endIdx; k++) {
+            replacedIndices.add(k);
         }
     }
     
-    return result;
+    // 收集非长条音符（保留原样）
+    const otherNotes = [];
+    for (let k = 0; k < notes.length; k++) {
+        if (!replacedIndices.has(k)) {
+            otherNotes.push(notes[k]);
+        }
+    }
+    
+    // 为每个长条找到需要对齐的目标时间
+    const result = [];
+    const holdNotes = [];
+    for (const seq of sequences) {
+        const duration = seq.endTime - seq.time;
+        holdNotes.push([seq.time, seq.lane, duration]);
+    }
+    
+    // 合并长条和其他音符，并对齐时间
+    const allItems = [...otherNotes.map(n => ({ time: n[0], lane: n[1], type: 'tap' })),
+                      ...holdNotes.map(n => ({ time: n[0], lane: n[1], duration: n[2], type: 'hold' }))];
+    
+    // 按时间排序
+    allItems.sort((a, b) => a.time - b.time);
+    
+    // 对齐：长条头部时间对齐到最近的其他轨道音符（±150ms内）
+    const tapTimes = otherNotes.map(n => n[0]);
+    for (const item of allItems) {
+        if (item.type === 'hold') {
+            // 找最近的其他轨道 tap 时间
+            let bestAlign = item.time;
+            let minDist = Infinity;
+            for (const t of tapTimes) {
+                // 排除同轨道的 tap
+                const tapLane = otherNotes.find(n => n[0] === t);
+                if (tapLane && tapLane[1] === item.lane) continue;
+                const dist = Math.abs(item.time - t);
+                if (dist < minDist && dist <= 150) {
+                    minDist = dist;
+                    bestAlign = t;
+                }
+            }
+            result.push([bestAlign, item.lane, item.duration + (item.time - bestAlign)]);
+        } else {
+            result.push([item.time, item.lane]);
+        }
+    }
+    
+    return result.sort((a, b) => a[0] - b[0]);
 }
 
 // 生成默认谱面（当 onset 检测失败时）- 按音乐时长
