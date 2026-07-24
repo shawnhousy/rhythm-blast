@@ -440,6 +440,7 @@ const game = {
     currentSong: null,
     notes: [],
     activeNotes: [],
+    heldNotes: {}, // { lane: note } 跟踪正在按住的长条音符
     startTime: 0,
     paused: false,
     pausedTime: 0,
@@ -575,6 +576,7 @@ function startGame(songId) {
     game.currentSong = song;
     game.notes = [...song.notes];
     game.activeNotes = [];
+    game.heldNotes = {};
     game.score = 0;
     game.combo = 0;
     game.maxCombo = 0;
@@ -724,7 +726,7 @@ function gameLoop() {
         }
         const isDouble = batch.length >= 2;
         for (const noteData of batch) {
-            spawnNote(noteData[0], noteData[1], now, isDouble);
+            spawnNote(noteData[0], noteData[1], now, isDouble, noteData[2]);
         }
     }
     
@@ -734,12 +736,32 @@ function gameLoop() {
         const progress = (now - note.spawnTime) / (note.targetTime - note.spawnTime);
         const y = progress * judgeY;
         
-        note.element.style.top = y + 'px';
-        
-        // 检查是否过了判定线（Miss）
-        if (now > note.targetTime + 280 && !note.hit) {
-            noteMiss(note);
-            game.activeNotes.splice(i, 1);
+        if (note.isHold) {
+            // 长条音符：头部在 y 位置，主体向上延伸
+            note.element.style.top = (y - note.holdHeight) + 'px';
+            
+            if (note.holding && !note.completed) {
+                // 正在按住中：检查是否到达结束时间
+                if (now >= note.endTime) {
+                    // 长条完成！
+                    completeHold(note);
+                }
+            } else if (!note.holding && !note.hit) {
+                // 未按住：检查是否过了判定窗口（Miss）
+                if (now > note.targetTime + 280) {
+                    noteMiss(note);
+                    game.activeNotes.splice(i, 1);
+                }
+            }
+        } else {
+            // 普通音符
+            note.element.style.top = y + 'px';
+            
+            // 检查是否过了判定线（Miss）
+            if (now > note.targetTime + 280 && !note.hit) {
+                noteMiss(note);
+                game.activeNotes.splice(i, 1);
+            }
         }
     }
     
@@ -765,24 +787,69 @@ function gameLoop() {
     }
 }
 
-function spawnNote(targetTime, lane, currentNow, isDouble) {
+function spawnNote(targetTime, lane, currentNow, isDouble, duration) {
     const now = currentNow !== undefined ? currentNow : getGameNow();
     const laneEl = document.querySelector(`.track-lane[data-lane="${lane}"]`);
     if (!laneEl) return;
     
     const noteEl = document.createElement('div');
-    noteEl.className = isDouble ? 'note double-note' : 'note';
-    noteEl.style.top = '-30px';
+    
+    const isHold = duration && duration > 0;
+    
+    if (isHold) {
+        // 长条音符
+        noteEl.className = isDouble ? 'note hold-note double-note' : 'note hold-note';
+        
+        // 计算长条视觉高度
+        const trackContainer = document.getElementById('trackContainer');
+        const trackHeight = trackContainer.clientHeight;
+        const judgeY = trackHeight - 100;
+        const fallTime = judgeY / game.noteSpeed * 1000;
+        const holdHeight = (duration / fallTime) * judgeY;
+        
+        noteEl.style.height = (holdHeight + 24) + 'px';
+        noteEl.style.top = '-30px';
+        
+        // 创建头部（判定端）
+        const headEl = document.createElement('div');
+        headEl.className = 'hold-head';
+        noteEl.appendChild(headEl);
+        
+        // 创建主体
+        const bodyEl = document.createElement('div');
+        bodyEl.className = 'hold-body';
+        noteEl.appendChild(bodyEl);
+        
+        // 创建尾部
+        const tailEl = document.createElement('div');
+        tailEl.className = 'hold-tail';
+        noteEl.appendChild(tailEl);
+    } else {
+        noteEl.className = isDouble ? 'note double-note' : 'note';
+        noteEl.style.top = '-30px';
+    }
+    
     laneEl.appendChild(noteEl);
     
-    game.activeNotes.push({
+    const noteData = {
         element: noteEl,
         lane: lane,
         targetTime: targetTime,
         spawnTime: now,
         hit: false,
         isDouble: isDouble || false
-    });
+    };
+    
+    if (isHold) {
+        noteData.isHold = true;
+        noteData.duration = duration;
+        noteData.endTime = targetTime + duration;
+        noteData.holding = false;
+        noteData.completed = false;
+        noteData.holdHeight = holdHeight;
+    }
+    
+    game.activeNotes.push(noteData);
 }
 
 // ========== 输入处理 ==========
@@ -818,13 +885,16 @@ function pressKey(lane) {
     const keyEl = document.querySelector(`.key[data-key="${['d','f','j','k'][lane]}"]`);
     if (keyEl) keyEl.classList.add('active');
     
-    // 寻找最接近判定线的音符
+    // 如果该轨道已有正在按住的长条，不重复触发
+    if (game.heldNotes[lane]) return;
+    
+    // 寻找最接近判定线的音符（排除正在按住的长条）
     const now = getGameNow();
     let closestNote = null;
     let closestDiff = Infinity;
     
     for (const note of game.activeNotes) {
-        if (note.lane === lane && !note.hit) {
+        if (note.lane === lane && !note.hit && !note.holding) {
             const diff = Math.abs(now - note.targetTime);
             if (diff < closestDiff && diff < 300) {
                 closestDiff = diff;
@@ -834,13 +904,82 @@ function pressKey(lane) {
     }
     
     if (closestNote) {
-        hitNote(closestNote, closestDiff);
+        if (closestNote.isHold) {
+            // 长条音符：判定头部，标记为按住状态
+            hitNote(closestNote, closestDiff);
+            closestNote.holding = true;
+            game.heldNotes[lane] = closestNote;
+            closestNote.element.classList.add('holding');
+        } else {
+            hitNote(closestNote, closestDiff);
+        }
     }
 }
 
 function releaseKey(lane) {
     const keyEl = document.querySelector(`.key[data-key="${['d','f','j','k'][lane]}"]`);
     if (keyEl) keyEl.classList.remove('active');
+    
+    // 检查该轨道是否有正在按住的长条
+    const heldNote = game.heldNotes[lane];
+    if (heldNote) {
+        const now = getGameNow();
+        
+        if (heldNote.completed) {
+            // 已完成，清理
+            delete game.heldNotes[lane];
+        } else if (now >= heldNote.endTime) {
+            // 刚好到结束时间，完成长条
+            completeHold(heldNote);
+            delete game.heldNotes[lane];
+        } else {
+            // 提前松手：断 combo，不重复计 miss stat（头部判定已计入）
+            heldNote.holding = false;
+            heldNote.hit = true;
+            game.combo = 0;
+            showJudgment('miss');
+            playHitSound('miss');
+            updateCombo();
+            
+            // 移除长条
+            if (heldNote.element.parentNode) {
+                heldNote.element.parentNode.removeChild(heldNote.element);
+            }
+            const idx = game.activeNotes.indexOf(heldNote);
+            if (idx > -1) game.activeNotes.splice(idx, 1);
+            delete game.heldNotes[lane];
+        }
+    }
+}
+
+// 长条音符完成处理
+function completeHold(note) {
+    if (note.completed) return;
+    note.completed = true;
+    note.holding = false;
+    note.hit = true;
+    
+    // 长条完成奖励：保持头部判定等级，额外加分
+    const bonusScore = 500;
+    const comboBonus = Math.min(1 + game.combo * 0.01, 2);
+    game.score += Math.round(bonusScore * comboBonus);
+    
+    // 不重复增加 stats，头部判定已计入
+    showJudgment('perfect');
+    playHitSound('perfect');
+    createParticles(note.lane, 'perfect');
+    updateScore();
+    updateCombo();
+    
+    note.element.classList.add('hit');
+    note.element.classList.remove('holding');
+    
+    // 移除长条
+    setTimeout(() => {
+        const idx = game.activeNotes.indexOf(note);
+        if (idx > -1) game.activeNotes.splice(idx, 1);
+        if (note.element.parentNode) note.element.parentNode.removeChild(note.element);
+    }, 200);
 }
 
 // ========== 触控支持 ==========
@@ -974,7 +1113,6 @@ function isMobile() {
 // ========== 判定 ==========
 function hitNote(note, diff) {
     note.hit = true;
-    note.element.classList.add('hit');
     
     let judgment, scoreAdd;
     
@@ -1010,7 +1148,13 @@ function hitNote(note, diff) {
     updateScore();
     updateCombo();
     
-    // 移除音符
+    // 长条音符：头部判定后不移除，保持按住状态
+    if (note.isHold) {
+        return;
+    }
+    
+    // 普通音符：添加击中动画并移除
+    note.element.classList.add('hit');
     setTimeout(() => {
         const idx = game.activeNotes.indexOf(note);
         if (idx > -1) game.activeNotes.splice(idx, 1);
@@ -1208,7 +1352,8 @@ function stopGame() {
     stopCustomAudio();
     game.isCustom = false;
     
-    // 清理音符
+    // 清理音符和长条状态
+    game.heldNotes = {};
     document.querySelectorAll('.note').forEach(n => n.remove());
     document.querySelectorAll('.particle').forEach(p => p.remove());
 }
@@ -1949,8 +2094,51 @@ function generateChartFromOnsets(onsets, difficulty, duration) {
         }
     }
     
-    // 排序并返回
-    return notes.sort((a, b) => a[0] - b[0]);
+    // 排序后合并连续同轨音符为长条
+    const sorted = notes.sort((a, b) => a[0] - b[0]);
+    return mergeConsecutiveNotes(sorted);
+}
+
+// 合并连续同轨音符为长条音符
+// 检测同一轨道上间隔较近的连续音符，合并为一个长条 [time, lane, duration]
+function mergeConsecutiveNotes(notes, maxGap = 280, minGap = 80) {
+    if (notes.length === 0) return notes;
+    
+    const result = [];
+    let i = 0;
+    
+    while (i < notes.length) {
+        const [time, lane] = notes[i];
+        let endTime = time;
+        let j = i + 1;
+        
+        // 找到同一轨道上间隔在 maxGap 以内的连续音符
+        while (j < notes.length) {
+            const nextTime = notes[j][0];
+            const nextLane = notes[j][1];
+            const gap = nextTime - endTime;
+            
+            if (nextLane === lane && gap <= maxGap && gap >= minGap) {
+                endTime = nextTime;
+                j++;
+            } else {
+                break;
+            }
+        }
+        
+        if (j > i + 1) {
+            // 多个连续音符 → 合并为长条
+            const duration = endTime - time;
+            result.push([time, lane, duration]);
+            i = j;
+        } else {
+            // 单个音符保持不变
+            result.push(notes[i]);
+            i++;
+        }
+    }
+    
+    return result;
 }
 
 // 生成默认谱面（当 onset 检测失败时）- 按音乐时长
@@ -2000,6 +2188,7 @@ function startCustomGame(song) {
     game.currentSong = song;
     game.notes = [...song.notes];
     game.activeNotes = [];
+    game.heldNotes = {};
     game.score = 0;
     game.combo = 0;
     game.maxCombo = 0;
