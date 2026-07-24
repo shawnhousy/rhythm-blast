@@ -738,7 +738,8 @@ function gameLoop() {
         
         if (note.isHold) {
             // 长条音符：头部在 y 位置，主体向上延伸
-            note.element.style.top = (y - note.holdHeight) + 'px';
+            // -24 让头部（24px高）底部对齐 y，主体向上延伸 holdHeight
+            note.element.style.top = (y - note.holdHeight - 24) + 'px';
             
             if (note.holding && !note.completed) {
                 // 正在按住中：检查是否到达结束时间
@@ -791,35 +792,36 @@ function spawnNote(targetTime, lane, currentNow, isDouble, duration) {
     const now = currentNow !== undefined ? currentNow : getGameNow();
     const laneEl = document.querySelector(`.track-lane[data-lane="${lane}"]`);
     if (!laneEl) return;
-    
+
     const noteEl = document.createElement('div');
-    
+
     const isHold = duration && duration > 0;
-    
+    let holdHeight = 0;
+
     if (isHold) {
         // 长条音符
         noteEl.className = isDouble ? 'note hold-note double-note' : 'note hold-note';
-        
+
         // 计算长条视觉高度
         const trackContainer = document.getElementById('trackContainer');
         const trackHeight = trackContainer.clientHeight;
         const judgeY = trackHeight - 100;
         const fallTime = judgeY / game.noteSpeed * 1000;
-        const holdHeight = (duration / fallTime) * judgeY;
-        
+        holdHeight = (duration / fallTime) * judgeY;
+
         noteEl.style.height = (holdHeight + 24) + 'px';
         noteEl.style.top = '-30px';
-        
+
         // 创建头部（判定端）
         const headEl = document.createElement('div');
         headEl.className = 'hold-head';
         noteEl.appendChild(headEl);
-        
+
         // 创建主体
         const bodyEl = document.createElement('div');
         bodyEl.className = 'hold-body';
         noteEl.appendChild(bodyEl);
-        
+
         // 创建尾部
         const tailEl = document.createElement('div');
         tailEl.className = 'hold-tail';
@@ -828,9 +830,9 @@ function spawnNote(targetTime, lane, currentNow, isDouble, duration) {
         noteEl.className = isDouble ? 'note double-note' : 'note';
         noteEl.style.top = '-30px';
     }
-    
+
     laneEl.appendChild(noteEl);
-    
+
     const noteData = {
         element: noteEl,
         lane: lane,
@@ -839,7 +841,7 @@ function spawnNote(targetTime, lane, currentNow, isDouble, duration) {
         hit: false,
         isDouble: isDouble || false
     };
-    
+
     if (isHold) {
         noteData.isHold = true;
         noteData.duration = duration;
@@ -848,7 +850,7 @@ function spawnNote(targetTime, lane, currentNow, isDouble, duration) {
         noteData.completed = false;
         noteData.holdHeight = holdHeight;
     }
-    
+
     game.activeNotes.push(noteData);
 }
 
